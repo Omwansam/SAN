@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brand: #2563eb;
+  /* Soft UI canvas (CHILI-style light shell) */
+  --surface-muted: #f0f4f3;
+  --surface-elevated: #ffffff;
+  --surface-card-shadow: 0 10px 40px -18px rgb(15 23 42 / 0.12);
+}
+
+html.dark {
+  --surface-muted: #0c0f12;
+  --surface-elevated: #111827;
+  --surface-card-shadow: 0 12px 40px -12px rgb(0 0 0 / 0.45);
+}
+
+html {
+  @apply antialiased;
+}
+
+body {
+  @apply m-0 min-h-screen text-gray-900;
+  background-color: var(--surface-muted);
+}
+
+#root {
+  @apply min-h-screen;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
+
+.dark body {
+  @apply text-gray-100;
+  background-color: var(--surface-muted);
+}
+
+/* Mobile cart drawer — mount animations */
+@keyframes cart-drawer-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cart-drawer-sheet-in {
+  from {
+    opacity: 0.92;
+    transform: translate3d(0, 100%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.cart-drawer-backdrop {
+  animation: cart-drawer-backdrop-in 0.22s ease-out forwards;
+}
+
+.cart-drawer-sheet {
+  animation: cart-drawer-sheet-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
