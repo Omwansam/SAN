@@ -17,6 +17,8 @@ export function withTenantDefaults(config, tenantId) {
     ...config,
     tenantId,
     modules: { ...base.modules, ...(config.modules || {}) },
+    billing: { ...base.billing, ...(config.billing || {}) },
+    receipt: { ...base.receipt, ...(config.receipt || {}) },
     kitchenStations:
       Array.isArray(config.kitchenStations) && config.kitchenStations.length
         ? config.kitchenStations
@@ -53,5 +55,16 @@ export function createDefaultTenantConfig(tenantId) {
     roles: ['cashier', 'manager', 'admin', 'superadmin'],
     customFields: [],
     kitchenStations: DEFAULT_KITCHEN_STATIONS,
+    billing: {
+      planName: 'Starter',
+      expiresAt: null,
+    },
+    receipt: {
+      logoDataUrl: '',
+      footerMessage: '',
+      showTax: true,
+      showCashier: true,
+      showCustomer: true,
+    },
   }
 }

@@ -1,10 +1,9 @@
-export function Input({
-  id,
-  label,
-  className = '',
-  labelClassName = '',
-  ...props
-}) {
+import { forwardRef } from 'react'
+
+export const Input = forwardRef(function Input(
+  { id, label, className = '', labelClassName = '', ...props },
+  ref,
+) {
   return (
     <div className="w-full">
       {label ? (
@@ -16,10 +15,11 @@ export function Input({
         </label>
       ) : null}
       <input
+        ref={ref}
         id={id}
         className={`w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-gray-900 shadow-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-[var(--brand)] disabled:bg-gray-50 disabled:text-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 ${className}`}
         {...props}
       />
     </div>
   )
-}
+})

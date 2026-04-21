@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { forwardRef, useMemo, useState } from 'react'
 import { LayoutGrid, Search, Tag } from 'lucide-react'
 import { Input } from '../shared/Input'
 import { EmptyState } from '../shared/EmptyState'
@@ -6,21 +6,29 @@ import { Modal } from '../shared/Modal'
 import { Button } from '../shared/Button'
 import { ProductCard } from './ProductCard'
 
-export function ProductGrid({
-  products,
-  categories,
-  tenantConfig,
-  showStock,
-  onAddProduct,
-  /** e.g. "12 products · 3 categories" */
-  statsLine,
-}) {
+export const ProductGrid = forwardRef(function ProductGrid(
+  {
+    products,
+    categories,
+    tenantConfig,
+    showStock,
+    onAddProduct,
+    /** e.g. "12 products · 3 categories" */
+    statsLine,
+    /** Called with trimmed search when user presses Enter in search */
+    onCommitSearch,
+  },
+  ref,
+) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('all')
   const [edit, setEdit] = useState(null)
   const [qty, setQty] = useState(1)
   const [disc, setDisc] = useState(0)
   const [note, setNote] = useState('')
+  const [rxDoctor, setRxDoctor] = useState('')
+  const [rxNotes, setRxNotes] = useState('')
+  const [rxImage, setRxImage] = useState('')
 
   const activeProducts = useMemo(
     () => products.filter((p) => p.active !== false),
@@ -66,11 +74,19 @@ export function ProductGrid({
       <div className="relative shrink-0">
         <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <Input
+          ref={ref}
           id="pos-search"
           className="!rounded-full !border-gray-200/90 !py-3 !pl-11 !shadow-sm dark:!border-gray-700"
           placeholder="Search dishes, SKU, barcode…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            const s = q.trim().toLowerCase()
+            if (!s || !onCommitSearch) return
+            onCommitSearch(s)
+          }}
           aria-label="Search products"
         />
       </div>
@@ -159,6 +175,9 @@ export function ProductGrid({
                 setQty(1)
                 setDisc(0)
                 setNote('')
+                setRxDoctor('')
+                setRxNotes('')
+                setRxImage('')
               }}
             />
           ))
@@ -183,6 +202,9 @@ export function ProductGrid({
                   qty,
                   discount: Number(disc) || 0,
                   note,
+                  prescriber: rxDoctor.trim() || undefined,
+                  prescriptionNotes: rxNotes.trim() || undefined,
+                  prescriptionImage: rxImage || undefined,
                 })
                 setEdit(null)
               }}
@@ -219,9 +241,40 @@ export function ProductGrid({
               onChange={(e) => setNote(e.target.value)}
               aria-label="Line note"
             />
+            {tenantConfig?.modules?.prescriptions ? (
+              <>
+                <Input
+                  id="qe-rx-dr"
+                  label="Doctor / prescriber (optional)"
+                  value={rxDoctor}
+                  onChange={(e) => setRxDoctor(e.target.value)}
+                />
+                <Input
+                  id="qe-rx-notes"
+                  label="Prescription notes (optional)"
+                  value={rxNotes}
+                  onChange={(e) => setRxNotes(e.target.value)}
+                />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Prescription image (optional)
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="mt-1 block w-full text-sm"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      const r = new FileReader()
+                      r.onload = () => setRxImage(String(r.result ?? ''))
+                      r.readAsDataURL(f)
+                    }}
+                  />
+                </label>
+              </>
+            ) : null}
           </div>
         ) : null}
       </Modal>
     </div>
   )
-}
+})

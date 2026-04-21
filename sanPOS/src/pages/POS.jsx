@@ -1,27 +1,40 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { format } from 'date-fns'
 import toast from 'react-hot-toast'
-import { ShoppingBag } from 'lucide-react'
+import * as Switch from '@radix-ui/react-switch'
+import { Camera, Monitor, Pause, Play, ShoppingBag } from 'lucide-react'
 import { MobileCartDrawer } from '../components/layout/MobileCartDrawer'
 import { CartPanel } from '../components/pos/CartPanel'
 import {
   CustomPosLayout,
   GroceryPosLayout,
+  LaundryPosLayout,
+  LiquorPosLayout,
   PharmacyPosLayout,
   RestaurantPosLayout,
   RetailPosLayout,
   SalonPosLayout,
 } from '../components/pos/layouts/PosExperienceLayouts'
+import { BarcodeScannerModal } from '../components/pos/BarcodeScannerModal'
+import { ManagerPinModal } from '../components/pos/ManagerPinModal'
 import { PaymentModal } from '../components/pos/PaymentModal'
 import { ProductGrid } from '../components/pos/ProductGrid'
 import { RecentOrdersStrip } from '../components/pos/RecentOrdersStrip'
 import { ReceiptModal } from '../components/pos/ReceiptModal'
 import { SplitBillModal } from '../components/pos/SplitBillModal'
 import { getPosExperience } from '../config/posExperience'
+import { Button } from '../components/shared/Button'
+import { Input } from '../components/shared/Input'
+import { Modal } from '../components/shared/Modal'
 import { useAuth } from '../hooks/useAuth'
+import { useBranch } from '../hooks/useBranch'
 import { useCart } from '../hooks/useCart'
 import { useCustomers } from '../hooks/useCustomers'
 import { useOrders } from '../hooks/useOrders'
 import { useProducts } from '../hooks/useProducts'
+import { useNotifications } from '../hooks/useNotifications'
+import { useCustomerDisplayRegisterOnline } from '../hooks/useCustomerDisplayRegisterOnline'
 import { useTenant } from '../hooks/useTenant'
 import { appendDispensingEntry } from '../utils/dispensingLog'
 import { buildEqualSplitRowsWithTips } from '../utils/paymentSplit'
@@ -32,6 +45,8 @@ import {
 } from '../utils/posTotals'
 import { formatCurrency } from '../utils/currency'
 import { validateRxCartLines } from '../utils/rxValidation'
+import { appendStockLog } from '../utils/stockLog'
+import { postCustomerDisplayMessage } from '../utils/customerDisplayChannel'
 import { getJSON, setJSON } from '../utils/storage'
 import { newId } from '../utils/uuid'
 
@@ -41,15 +56,22 @@ const POS_LAYOUTS = {
   pharmacy: PharmacyPosLayout,
   restaurant: RestaurantPosLayout,
   salon: SalonPosLayout,
+  laundry: LaundryPosLayout,
+  liquor: LiquorPosLayout,
   custom: CustomPosLayout,
 }
 
 export default function POS() {
+  const navigate = useNavigate()
   const { tenantId, tenantConfig } = useTenant()
+  const { online: customerDisplayRegisterOnline, publish: publishCustomerDisplayRegisterOnline } =
+    useCustomerDisplayRegisterOnline(tenantId)
+  const { activeBranchId, activeBranch } = useBranch()
   const { currentUser, can } = useAuth()
   const { products, categories, updateProduct } = useProducts()
   const { createOrder } = useOrders()
   const { customers, addCustomer, updateCustomer } = useCustomers()
+  const { pushNotification } = useNotifications()
   const {
     items,
     activeCustomer,
@@ -63,7 +85,19 @@ export default function POS() {
     applyDiscount,
     clearCart,
     serviceMode,
+    deliveryMeta,
+    setDeliveryMeta,
+    hydrateFromPayload,
   } = useCart()
+
+  const searchRef = useRef(null)
+  const mgrOkRef = useRef(false)
+  const payContinueRef = useRef(null)
+  const [mgrOpen, setMgrOpen] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanContinuous, setScanContinuous] = useState(false)
+  const [scanMissingCode, setScanMissingCode] = useState(null)
+  const [heldOpen, setHeldOpen] = useState(false)
 
   const [payOpen, setPayOpen] = useState(false)
   const [rcOpen, setRcOpen] = useState(false)
@@ -92,6 +126,25 @@ export default function POS() {
     const set = new Set(partialLineIds)
     return items.filter((it) => set.has(it.lineId))
   }, [items, partialLineIds])
+
+  useEffect(() => {
+    if (items.length === 0) mgrOkRef.current = false
+  }, [items.length])
+
+  const setScanOpenWithReset = useCallback((open) => {
+    if (!open) setScanContinuous(false)
+    setScanOpen(open)
+  }, [])
+
+  const openCustomerDisplay = useCallback(() => {
+    const url = new URL('/customer-display', window.location.origin).href
+    const w = window.open(url, '_blank', 'noopener,noreferrer')
+    if (!w) {
+      toast.error('Pop-up blocked. Allow pop-ups to open customer display.')
+      return
+    }
+    w.focus?.()
+  }, [])
 
   const deliveryFeeOpts = useMemo(() => {
     const fee = Number(tenantConfig?.deliveryFee) || 0
@@ -130,6 +183,8 @@ export default function POS() {
       pharmacy: 'Pharmacy',
       restaurant: 'Restaurant',
       salon: 'Salon / spa',
+      laundry: 'Laundry',
+      liquor: 'Liquor store',
       custom: 'Custom',
     }
     return map[t] || 'POS'
@@ -154,14 +209,6 @@ export default function POS() {
 
   const onAdd = useCallback(
     (p) => {
-      if (
-        tenantConfig?.modules?.prescriptions &&
-        p.controlled &&
-        !can('controlled_substance')
-      ) {
-        toast.error('Controlled Rx lines require a manager or admin.')
-        return
-      }
       addItem({
         id: p.id,
         name: p.name,
@@ -171,12 +218,51 @@ export default function POS() {
         note: p.note ?? '',
         controlled: Boolean(p.controlled),
         kitchenStationId: p.kitchenStationId ?? '',
+        prescriber: p.prescriber ?? '',
+        prescriptionNotes: p.prescriptionNotes ?? '',
+        prescriptionImage: p.prescriptionImage ?? '',
       })
     },
-    [addItem, tenantConfig?.modules?.prescriptions, can],
+    [addItem],
   )
 
-  const openFullPay = useCallback(() => {
+  const addOrIncrementProduct = useCallback(
+    (p) => {
+      const existing = items.find((it) => it.productId === p.id)
+      if (existing) {
+        updateQty(existing.lineId, existing.qty + 1)
+      } else {
+        onAdd({ ...p, qty: 1 })
+      }
+    },
+    [items, updateQty, onAdd],
+  )
+
+  const handleBarcodeDetected = useCallback(
+    (raw) => {
+      const code = String(raw ?? '').trim()
+      if (!code) return
+      const active = products.filter((p) => p.active !== false)
+      const byBarcode = active.find((x) => String(x.barcode ?? '').trim() === code)
+      const bySku = active.find(
+        (x) =>
+          String(x.sku ?? '').trim() &&
+          String(x.sku ?? '').trim().toLowerCase() === code.toLowerCase(),
+      )
+      const p = byBarcode || bySku
+      if (!p) {
+        setScanMissingCode(code)
+        setScanOpenWithReset(false)
+        return
+      }
+      addOrIncrementProduct(p)
+      toast.success(`Added ${p.name}`)
+      if (!scanContinuous) setScanOpenWithReset(false)
+    },
+    [products, addOrIncrementProduct, scanContinuous, setScanOpenWithReset],
+  )
+
+  const runOpenPaymentModal = useCallback(() => {
     setDrawer(false)
     setPartialLineIds(null)
     setPaySplitRows(null)
@@ -186,6 +272,109 @@ export default function POS() {
     bumpPayModal()
     setPayOpen(true)
   }, [bumpPayModal])
+
+  const openFullPay = useCallback(() => {
+    const lines = partialLineIds?.length
+      ? items.filter((it) => new Set(partialLineIds).has(it.lineId))
+      : items
+    const needMgr = Boolean(
+      tenantConfig?.modules?.prescriptions &&
+        lines.some((it) => it.controlled) &&
+        !can('controlled_substance') &&
+        !mgrOkRef.current,
+    )
+    if (needMgr) {
+      payContinueRef.current = runOpenPaymentModal
+      setMgrOpen(true)
+      toast('Manager PIN required for controlled sale.')
+      return
+    }
+    runOpenPaymentModal()
+  }, [
+    runOpenPaymentModal,
+    items,
+    partialLineIds,
+    tenantConfig?.modules?.prescriptions,
+    can,
+  ])
+
+  const commitSearch = useCallback(
+    (s) => {
+      const active = products.filter((p) => p.active !== false)
+      const byBarcode = active.find(
+        (p) => String(p.barcode ?? '').trim() && String(p.barcode) === s,
+      )
+      const bySku = active.find((p) => String(p.sku ?? '').toLowerCase() === s)
+      const byName = active.find((p) => p.name.toLowerCase().includes(s))
+      const p = byBarcode || bySku || byName
+      if (!p) {
+        toast.error('No matching product.')
+        return
+      }
+      addOrIncrementProduct(p)
+    },
+    [products, addOrIncrementProduct],
+  )
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.target?.closest?.('[role="dialog"]')) return
+      if (e.code === 'F2') {
+        e.preventDefault()
+        searchRef.current?.focus?.()
+      }
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault()
+        if (items.length) openFullPay()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [items.length, openFullPay])
+
+  const holdCart = useCallback(() => {
+    if (!tenantId || !activeBranchId || !items.length) {
+      toast.error('Nothing to hold.')
+      return
+    }
+    const held = getJSON(tenantId, 'heldCarts', [])
+    const list = Array.isArray(held) ? held : []
+    const snapshot = {
+      items,
+      activeCustomer,
+      orderDiscount,
+      serviceMode,
+      deliveryMeta,
+    }
+    list.unshift({
+      id: newId(),
+      branchId: activeBranchId,
+      createdAt: new Date().toISOString(),
+      snapshot,
+    })
+    setJSON(tenantId, 'heldCarts', list.slice(0, 25))
+    clearCart()
+    toast.success('Cart held')
+  }, [
+    tenantId,
+    activeBranchId,
+    items,
+    activeCustomer,
+    orderDiscount,
+    serviceMode,
+    deliveryMeta,
+    clearCart,
+  ])
+
+  const resumeHeld = useCallback(
+    (row) => {
+      if (!row?.snapshot) return
+      hydrateFromPayload(row.snapshot)
+      setHeldOpen(false)
+      toast.success('Cart restored')
+    },
+    [hydrateFromPayload],
+  )
 
   const completePay = useCallback(
     ({ payments, change }) => {
@@ -234,6 +423,8 @@ export default function POS() {
           refillsRemaining: Number(it.refillsRemaining) || 0,
           pickupVerified: Boolean(it.pickupVerified),
           pickupIdLast4: it.pickupIdLast4?.trim() || undefined,
+          prescriptionNotes: it.prescriptionNotes?.trim() || undefined,
+          prescriptionImage: it.prescriptionImage || undefined,
         }
       })
       const restaurantService =
@@ -249,14 +440,26 @@ export default function POS() {
             }
           : {}
 
+      const deliveryPatch =
+        tenantConfig.modules?.deliveries && serviceMode === 'delivery'
+          ? {
+              deliveryAddress: deliveryMeta?.address?.trim() || undefined,
+              deliveryPhone: deliveryMeta?.phone?.trim() || undefined,
+              deliveryRider: deliveryMeta?.riderName?.trim() || undefined,
+            }
+          : {}
+
       const order = {
         id: newId(),
         tenantId,
+        branchId: activeBranchId ?? undefined,
         registerId,
         cashierId: currentUser.id,
         customerId: activeCustomer?.id ?? null,
+        customerName: activeCustomer?.name ?? undefined,
         createdAt: new Date().toISOString(),
         status: 'completed',
+        paymentStatus: 'paid',
         items: orderItems,
         subtotal: t.subtotal,
         taxAmount: t.taxAmount,
@@ -271,6 +474,7 @@ export default function POS() {
         tipsTotal: payTipsTotal > 0 ? payTipsTotal : 0,
         deliveryFeeAmount: t.deliveryFeeAmount || 0,
         ...restaurantService,
+        ...deliveryPatch,
       }
       createOrder(order)
 
@@ -278,9 +482,18 @@ export default function POS() {
         for (const it of payItems) {
           const pr = products.find((x) => x.id === it.productId)
           if (pr) {
+            const nextStock = Math.max(0, (pr.stock ?? 0) - it.qty)
             updateProduct({
               ...pr,
-              stock: Math.max(0, (pr.stock ?? 0) - it.qty),
+              stock: nextStock,
+            })
+            appendStockLog(tenantId, {
+              branchId: activeBranchId,
+              productId: pr.id,
+              productName: pr.name,
+              delta: -it.qty,
+              reason: 'sale',
+              userId: currentUser.id,
             })
           }
         }
@@ -305,6 +518,7 @@ export default function POS() {
         q.push({
           id: newId(),
           orderId: order.id,
+          branchId: activeBranchId ?? undefined,
           status: 'preparing',
           items: payItems.map((cartIt) => {
             const line = lineNet(cartIt)
@@ -362,6 +576,12 @@ export default function POS() {
       }
 
       setLastOrder(order)
+      postCustomerDisplayMessage({
+        type: 'sale_complete',
+        total: t.total,
+        partial: Boolean(partialLineIds?.length),
+        at: new Date().toISOString(),
+      })
       if (partialLineIds?.length) {
         removeLineIds(partialLineIds)
       } else {
@@ -374,6 +594,13 @@ export default function POS() {
       setPayTipsTotal(0)
       setPayOpen(false)
       setRcOpen(true)
+      mgrOkRef.current = false
+      pushNotification({
+        level: 'success',
+        title: partialLineIds?.length ? 'Partial payment' : 'Sale completed',
+        message: formatCurrency(t.total, tenantConfig),
+        toast: true,
+      })
       toast.success(partialLineIds?.length ? 'Partial payment recorded' : 'Sale completed')
     },
     [
@@ -394,6 +621,9 @@ export default function POS() {
       payTipsTotal,
       pos.sendToKitchenOnSale,
       serviceMode,
+      activeBranchId,
+      deliveryMeta,
+      pushNotification,
     ],
   )
 
@@ -419,15 +649,34 @@ export default function POS() {
     [addCustomer, setActiveCustomer, tenantId],
   )
 
-  const onPaySelectedLines = useCallback((lineIds) => {
-    setPartialLineIds(lineIds)
-    setPaySplitRows(null)
-    setPayInitialMode('single')
-    setPayOrderTotal(null)
-    setPayTipsTotal(0)
-    bumpPayModal()
-    setPayOpen(true)
-  }, [bumpPayModal])
+  const onPaySelectedLines = useCallback(
+    (lineIds) => {
+      setPartialLineIds(lineIds)
+      setPaySplitRows(null)
+      setPayInitialMode('single')
+      setPayOrderTotal(null)
+      setPayTipsTotal(0)
+      const subset = items.filter((it) => lineIds.includes(it.lineId))
+      const needMgr = Boolean(
+        tenantConfig?.modules?.prescriptions &&
+          subset.some((it) => it.controlled) &&
+          !can('controlled_substance') &&
+          !mgrOkRef.current,
+      )
+      if (needMgr) {
+        payContinueRef.current = () => {
+          bumpPayModal()
+          setPayOpen(true)
+        }
+        setMgrOpen(true)
+        toast('Manager PIN required for controlled sale.')
+        return
+      }
+      bumpPayModal()
+      setPayOpen(true)
+    },
+    [bumpPayModal, items, tenantConfig?.modules?.prescriptions, can],
+  )
 
   const onEqualSplitWithTips = useCallback(
     (parts, tipByParty) => {
@@ -456,10 +705,25 @@ export default function POS() {
       setPayInitialMode('split')
       setPayOrderTotal(grandTotal)
       setPayTipsTotal(tipsTotal)
+      const needMgr = Boolean(
+        tenantConfig?.modules?.prescriptions &&
+          items.some((it) => it.controlled) &&
+          !can('controlled_substance') &&
+          !mgrOkRef.current,
+      )
+      if (needMgr) {
+        payContinueRef.current = () => {
+          bumpPayModal()
+          setPayOpen(true)
+        }
+        setMgrOpen(true)
+        toast('Manager PIN required for controlled sale.')
+        return
+      }
       bumpPayModal()
       setPayOpen(true)
     },
-    [bumpPayModal, items, orderDiscount, tenantConfig, serviceMode],
+    [bumpPayModal, items, orderDiscount, tenantConfig, serviceMode, can],
   )
 
   const cartTotals = useMemo(
@@ -500,16 +764,116 @@ export default function POS() {
   const cartNode = <CartPanel {...cartPanelProps} variant="sidebar" />
   const mobileCartNode = <CartPanel {...cartPanelProps} variant="drawer" />
 
+  const posToolbar = (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary" className="!py-1.5 text-xs" onClick={holdCart}>
+          <Pause className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+          Hold cart
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="!py-1.5 text-xs"
+          onClick={() => setHeldOpen(true)}
+        >
+          <Play className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+          Resume
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="!py-1.5 text-xs"
+          onClick={() => {
+            if (items.length && !window.confirm('Clear the cart?')) return
+            clearCart()
+          }}
+        >
+          Clear cart
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="!py-1.5 text-xs"
+          onClick={() => setScanOpenWithReset(true)}
+        >
+          <Camera className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+          Scan barcode
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="!py-1.5 text-xs"
+          onClick={openCustomerDisplay}
+        >
+          <Monitor className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+          Customer screen
+        </Button>
+        <div className="flex w-full flex-wrap items-center gap-2.5 rounded-xl border border-gray-200/90 bg-white/70 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/55 sm:w-auto sm:items-center">
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${customerDisplayRegisterOnline ? 'bg-emerald-500' : 'bg-red-500'}`}
+            aria-hidden
+          />
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+            Customer display
+          </span>
+          <Switch.Root
+            checked={customerDisplayRegisterOnline}
+            onCheckedChange={(v) => publishCustomerDisplayRegisterOnline(v)}
+            disabled={!tenantId}
+            className="h-6 w-11 shrink-0 rounded-full bg-gray-200 data-[state=checked]:bg-emerald-600 dark:bg-gray-600 dark:data-[state=checked]:bg-emerald-600"
+            aria-label="Customer display online for second screen"
+          >
+            <Switch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white transition data-[state=checked]:translate-x-5" />
+          </Switch.Root>
+          <span
+            className={`text-xs font-semibold ${customerDisplayRegisterOnline ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}
+          >
+            {customerDisplayRegisterOnline ? 'Online' : 'Offline'}
+          </span>
+        </div>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          F2 search · Enter add match · Ctrl+Enter pay
+        </span>
+      </div>
+      {tenantConfig?.modules?.deliveries && serviceMode === 'delivery' ? (
+        <div className="mt-3 grid gap-2 rounded-2xl border border-gray-200/80 bg-white/80 p-3 dark:border-gray-800 dark:bg-gray-900/80 sm:grid-cols-3">
+          <Input
+            label="Delivery address"
+            value={deliveryMeta?.address ?? ''}
+            onChange={(e) =>
+              setDeliveryMeta({ address: e.target.value })
+            }
+          />
+          <Input
+            label="Delivery phone"
+            value={deliveryMeta?.phone ?? ''}
+            onChange={(e) => setDeliveryMeta({ phone: e.target.value })}
+          />
+          <Input
+            label="Rider name"
+            value={deliveryMeta?.riderName ?? ''}
+            onChange={(e) =>
+              setDeliveryMeta({ riderName: e.target.value })
+            }
+          />
+        </div>
+      ) : null}
+    </>
+  )
+
   const gridSection = (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <section className="flex min-h-[420px] flex-1 flex-col rounded-3xl border border-gray-200/80 bg-[var(--surface-elevated)] p-3 shadow-[var(--surface-card-shadow)] dark:border-gray-800/80 dark:bg-gray-900/95 lg:min-h-[calc(100vh-11rem)] lg:min-h-0 lg:p-5">
         <ProductGrid
+          ref={searchRef}
           products={products}
           categories={categories}
           tenantConfig={tenantConfig}
           showStock={Boolean(tenantConfig?.modules?.inventory)}
           statsLine={catalogStatsLine}
           onAddProduct={onAdd}
+          onCommitSearch={commitSearch}
         />
       </section>
       {tenantConfig?.businessType === 'restaurant' ? <RecentOrdersStrip /> : null}
@@ -609,9 +973,107 @@ export default function POS() {
         tenantConfig={tenantConfig}
         meta={{
           cashierName: currentUser?.name,
+          customerName: lastOrder?.customerName ?? activeCustomer?.name,
+          branchName: activeBranch?.name,
           registerId: tenantId ? getJSON(tenantId, 'activeRegisterId', '') : '',
         }}
       />
+
+      <ManagerPinModal
+        open={mgrOpen}
+        onOpenChange={setMgrOpen}
+        tenantId={tenantId}
+        onApproved={() => {
+          mgrOkRef.current = true
+          setMgrOpen(false)
+          const fn = payContinueRef.current
+          payContinueRef.current = null
+          fn?.()
+        }}
+      />
+
+      <BarcodeScannerModal
+        open={scanOpen}
+        onOpenChange={setScanOpenWithReset}
+        continuous={scanContinuous}
+        onContinuousChange={setScanContinuous}
+        onDetected={handleBarcodeDetected}
+      />
+
+      <Modal
+        open={Boolean(scanMissingCode)}
+        onOpenChange={(o) => {
+          if (!o) setScanMissingCode(null)
+        }}
+        title="Product not found"
+        footer={
+          <>
+            <Button type="button" variant="secondary" onClick={() => setScanMissingCode(null)}>
+              Close
+            </Button>
+            {can('catalog') ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  const b = scanMissingCode ?? ''
+                  setScanMissingCode(null)
+                  navigate('/products', {
+                    state: { prefillBarcode: b },
+                  })
+                }}
+              >
+                New product with this barcode
+              </Button>
+            ) : null}
+          </>
+        }
+      >
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          No product uses barcode{' '}
+          <span className="font-mono font-semibold text-gray-900 dark:text-gray-100">
+            {scanMissingCode}
+          </span>
+          . Add the item in Products (catalog permission required) or check the code.
+        </p>
+      </Modal>
+
+      <Modal
+        open={heldOpen}
+        onOpenChange={setHeldOpen}
+        title="Held carts"
+        footer={
+          <Button type="button" variant="secondary" onClick={() => setHeldOpen(false)}>
+            Close
+          </Button>
+        }
+      >
+        {(() => {
+          const raw = tenantId ? getJSON(tenantId, 'heldCarts', []) : []
+          const list = (Array.isArray(raw) ? raw : []).filter(
+            (h) => !h.branchId || h.branchId === activeBranchId,
+          )
+          if (!list.length) {
+            return <p className="text-sm text-gray-500">No held carts for this branch.</p>
+          }
+          return (
+            <ul className="max-h-72 space-y-2 overflow-auto">
+              {list.map((h) => (
+                <li
+                  key={h.id}
+                  className="flex items-center justify-between gap-2 rounded-xl border border-gray-200 p-3 dark:border-gray-700"
+                >
+                  <span className="text-sm text-gray-600 dark:text-gray-300">
+                    {h.createdAt ? format(new Date(h.createdAt), 'PPp') : 'Held cart'}
+                  </span>
+                  <Button type="button" onClick={() => resumeHeld(h)}>
+                    Resume
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )
+        })()}
+      </Modal>
     </>
   )
 
@@ -621,6 +1083,7 @@ export default function POS() {
       businessLabel={businessLabel}
       catalogStatsLine={catalogStatsLine}
       appointmentsEnabled={Boolean(tenantConfig?.modules?.appointments)}
+      toolbar={posToolbar}
       grid={gridSection}
       cart={cartSection}
       mobileFab={mobileFab}

@@ -14,7 +14,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { format, startOfDay, subDays } from 'date-fns'
+import {
+  format,
+  startOfDay,
+  startOfWeek,
+  startOfMonth,
+  subDays,
+} from 'date-fns'
 import toast from 'react-hot-toast'
 import { Navigate } from 'react-router-dom'
 import { Button } from '../components/shared/Button'
@@ -28,6 +34,9 @@ import { useTenant } from '../hooks/useTenant'
 
 const COLORS = ['#6366f1', '#22c55e', '#f97316', '#ec4899', '#14b8a6']
 
+/** Recharts ResponsiveContainer needs a definite size; % height in grid can measure as -1. */
+const CHART_PX = 256
+
 export default function Reports() {
   const { tenantId, tenantConfig } = useTenant()
   const { can } = useAuth()
@@ -36,7 +45,25 @@ export default function Reports() {
   const [closed, setClosed] = useState(() =>
     tenantId ? getJSON(tenantId, 'zReportClosed', false) : false,
   )
+  const [range, setRange] = useState('month')
   const [dispensing, setDispensing] = useState([])
+
+  const rangeStart = useMemo(() => {
+    const now = new Date()
+    if (range === 'today') return startOfDay(now)
+    if (range === 'week') return startOfWeek(now, { weekStartsOn: 1 })
+    return startOfMonth(now)
+  }, [range])
+
+  const ordersInRange = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          o.status === 'completed' &&
+          startOfDay(new Date(o.createdAt)) >= rangeStart,
+      ),
+    [orders, rangeStart],
+  )
 
   useEffect(() => {
     if (!tenantId) return
@@ -47,13 +74,17 @@ export default function Reports() {
   const todayOrders = orders.filter(
     (o) => o.status === 'completed' && startOfDay(new Date(o.createdAt)) >= today,
   )
-  const revenue = todayOrders.reduce((s, o) => s + (o.total || 0), 0)
-  const tax = todayOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
+  const zRevenue = todayOrders.reduce((s, o) => s + (o.total || 0), 0)
+  const zTax = todayOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
+  const summaryOrders = ordersInRange
+  const revenue = summaryOrders.reduce((s, o) => s + (o.total || 0), 0)
+  const tax = summaryOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
   const refunds = orders.filter((o) => o.status === 'refunded').length
 
   const lineData = useMemo(() => {
     const days = []
-    for (let i = 29; i >= 0; i--) {
+    const span = range === 'today' ? 0 : range === 'week' ? 6 : 29
+    for (let i = span; i >= 0; i--) {
       const d = subDays(new Date(), i)
       const key = format(d, 'yyyy-MM-dd')
       const sum = orders
@@ -66,11 +97,28 @@ export default function Reports() {
       days.push({ date: format(d, 'MMM d'), total: sum })
     }
     return days
-  }, [orders])
+  }, [orders, range])
+
+  const topProducts = useMemo(() => {
+    const map = {}
+    for (const o of summaryOrders) {
+      for (const it of o.items || []) {
+        const k = it.productId || it.name
+        map[k] = (map[k] || 0) + (it.qty || 0) * (it.unitPrice || 0)
+      }
+    }
+    return Object.entries(map)
+      .map(([id, total]) => {
+        const pr = products.find((p) => p.id === id)
+        return { name: pr?.name ?? id, total }
+      })
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8)
+  }, [summaryOrders, products])
 
   const byCat = useMemo(() => {
     const map = {}
-    for (const o of orders.filter((x) => x.status === 'completed')) {
+    for (const o of summaryOrders) {
       for (const it of o.items || []) {
         const pr = products.find((p) => p.id === it.productId)
         const cid = pr?.categoryId ?? 'other'
@@ -84,22 +132,22 @@ export default function Reports() {
       }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 5)
-  }, [orders, products, categories])
+  }, [summaryOrders, products, categories])
 
   const payMix = useMemo(() => {
     const m = {}
-    for (const o of orders.filter((x) => x.status === 'completed')) {
+    for (const o of summaryOrders) {
       for (const p of o.payments || []) {
         m[p.method] = (m[p.method] || 0) + (p.amount || 0)
       }
     }
     return Object.entries(m).map(([name, value]) => ({ name, value }))
-  }, [orders])
+  }, [summaryOrders])
 
   const grossProfit = useMemo(() => {
     let rev = 0
     let cost = 0
-    for (const o of orders.filter((x) => x.status === 'completed')) {
+    for (const o of summaryOrders) {
       for (const it of o.items || []) {
         const pr = products.find((p) => p.id === it.productId)
         const c = (pr?.costPrice ?? 0) * (it.qty || 0)
@@ -108,7 +156,7 @@ export default function Reports() {
       }
     }
     return rev - cost
-  }, [orders, products])
+  }, [summaryOrders, products])
 
   function closeShift() {
     if (!tenantId) return
@@ -122,31 +170,50 @@ export default function Reports() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-        Reports
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+          Reports
+        </h1>
+        <div className="flex gap-2">
+          {['today', 'week', 'month'].map((r) => (
+            <Button
+              key={r}
+              type="button"
+              variant={range === r ? 'primary' : 'secondary'}
+              className="!px-3 !py-1.5 text-xs capitalize"
+              onClick={() => setRange(r)}
+            >
+              {r}
+            </Button>
+          ))}
+        </div>
+      </div>
       {orders.length === 0 ? (
         <EmptyState title="No sales data yet" />
       ) : null}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-          <p className="text-sm text-gray-500">Today revenue</p>
+          <p className="text-sm text-gray-500">Period revenue</p>
           <p className="text-xl font-semibold">
             {formatCurrency(revenue, tenantConfig)}
           </p>
         </div>
         <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-          <p className="text-sm text-gray-500">Transactions</p>
-          <p className="text-xl font-semibold">{todayOrders.length}</p>
+          <p className="text-sm text-gray-500">Orders (period)</p>
+          <p className="text-xl font-semibold">{summaryOrders.length}</p>
         </div>
         <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-          <p className="text-sm text-gray-500">Avg order</p>
+          <p className="text-sm text-gray-500">Avg order (period)</p>
           <p className="text-xl font-semibold">
             {formatCurrency(
-              todayOrders.length ? revenue / todayOrders.length : 0,
+              summaryOrders.length ? revenue / summaryOrders.length : 0,
               tenantConfig,
             )}
           </p>
+        </div>
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-sm text-gray-500">Tax (period)</p>
+          <p className="text-xl font-semibold">{formatCurrency(tax, tenantConfig)}</p>
         </div>
         <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
           <p className="text-sm text-gray-500">Gross profit (est.)</p>
@@ -156,11 +223,11 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-          <h2 className="mb-2 font-medium">Sales (30 days)</h2>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+        <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="mb-2 font-medium">Sales trend</h2>
+          <div className="w-full min-w-0" style={{ height: CHART_PX }}>
+            <ResponsiveContainer width="100%" height={CHART_PX} minWidth={0}>
               <LineChart data={lineData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
@@ -171,10 +238,10 @@ export default function Reports() {
             </ResponsiveContainer>
           </div>
         </div>
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+        <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
           <h2 className="mb-2 font-medium">Revenue by category</h2>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="w-full min-w-0" style={{ height: CHART_PX }}>
+            <ResponsiveContainer width="100%" height={CHART_PX} minWidth={0}>
               <BarChart data={byCat}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} />
@@ -187,28 +254,51 @@ export default function Reports() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-        <h2 className="mb-2 font-medium">Payment methods</h2>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={payMix}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={80}
-                label
-              >
-                {payMix.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Pie>
-              <Legend />
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+      <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+        <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="mb-2 font-medium">Top products ({range})</h2>
+          <div className="w-full min-w-0" style={{ height: CHART_PX }}>
+            <ResponsiveContainer width="100%" height={CHART_PX} minWidth={0}>
+              <BarChart data={topProducts}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fontSize: 9 }}
+                  interval={0}
+                  angle={-20}
+                  textAnchor="end"
+                  height={70}
+                />
+                <YAxis tick={{ fontSize: 10 }} />
+                <Tooltip />
+                <Bar dataKey="total" fill="#22c55e" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="min-w-0 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <h2 className="mb-2 font-medium">Payment methods</h2>
+          <div className="w-full min-w-0" style={{ height: CHART_PX }}>
+            <ResponsiveContainer width="100%" height={CHART_PX} minWidth={0}>
+              <PieChart>
+                <Pie
+                  data={payMix}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                  label
+                >
+                  {payMix.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Legend />
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
@@ -262,10 +352,10 @@ export default function Reports() {
       <div className="rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
         <h2 className="text-lg font-semibold">Z-Report (today)</h2>
         <ul className="mt-3 space-y-1 text-sm text-gray-600 dark:text-gray-300">
-          <li>Total sales: {formatCurrency(revenue, tenantConfig)}</li>
-          <li>Tax collected: {formatCurrency(tax, tenantConfig)}</li>
+          <li>Total sales: {formatCurrency(zRevenue, tenantConfig)}</li>
+          <li>Tax collected: {formatCurrency(zTax, tenantConfig)}</li>
           <li>Refunds count: {refunds}</li>
-          <li>Net revenue: {formatCurrency(revenue, tenantConfig)}</li>
+          <li>Net revenue: {formatCurrency(zRevenue, tenantConfig)}</li>
           <li>Status: {closed ? 'Day locked' : 'Open'}</li>
         </ul>
         {can('reports') && !closed ? (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Navigate } from 'react-router-dom'
+import { Badge } from '../components/shared/Badge'
 import { Button } from '../components/shared/Button'
 import { EmptyState } from '../components/shared/EmptyState'
 import { Input } from '../components/shared/Input'
@@ -85,9 +86,45 @@ export default function SettingsUsers() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900"
             >
               <div>
-                <p className="font-medium">{u.name}</p>
+                <p className="flex flex-wrap items-center gap-2 font-medium">
+                  {u.name}
+                  <Badge variant={u.active === false ? 'warning' : 'default'}>
+                    {u.active === false ? 'Inactive' : 'Active'}
+                  </Badge>
+                  <Badge variant="brand" className="capitalize">
+                    {u.role}
+                  </Badge>
+                </p>
                 <p className="text-sm text-gray-500">{u.email}</p>
+                <p className="mt-1 text-xs text-gray-400">
+                  Branches:{' '}
+                  {!Array.isArray(u.branchIds) || u.branchIds.length === 0
+                    ? 'All'
+                    : u.branchIds
+                        .map(
+                          (id) =>
+                            getJSON(tenantId, 'branches', []).find((b) => b.id === id)
+                              ?.name ?? id,
+                        )
+                        .join(', ')}
+                </p>
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="!px-2 !py-1 text-xs"
+                  onClick={() => {
+                    const next = users.map((x) =>
+                      x.id === u.id ? { ...x, active: x.active === false } : x,
+                    )
+                    persist(next)
+                    const wasInactive = u.active === false
+                    toast.success(wasInactive ? 'Activated' : 'Deactivated')
+                  }}
+                >
+                  {u.active === false ? 'Activate' : 'Deactivate'}
+                </Button>
               <select
                 className="rounded-xl border border-gray-300 px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-800"
                 value={u.role}
@@ -106,6 +143,7 @@ export default function SettingsUsers() {
                   </option>
                 ))}
               </select>
+              </div>
             </li>
           ))}
         </ul>

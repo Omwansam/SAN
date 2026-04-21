@@ -49,6 +49,36 @@ const SALON = [
   `https://images.unsplash.com/photo-1560066984-138d9534a000?${Q}`,
 ]
 
+const LAUNDRY = [
+  `https://images.unsplash.com/photo-1582735689369-4fe89db7114c?${Q}`,
+  `https://images.unsplash.com/photo-1563453392212-326f5e854473?${Q}`,
+  `https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?${Q}`,
+  `https://images.unsplash.com/photo-1628771064982-62fbd813ccd9?${Q}`,
+  `https://images.unsplash.com/photo-1610557892470-b2ffab774fcb?${Q}`,
+  `https://images.unsplash.com/photo-1584467735871-8bdb319c5c1b?${Q}`,
+  `https://images.unsplash.com/photo-1562157873-818bc0726f68?${Q}`,
+  `https://images.unsplash.com/photo-1527515637772-8e1bbf605880?${Q}`,
+  `https://images.unsplash.com/photo-1610557892470-b2ffab774fcb?${Q}`,
+  `https://images.unsplash.com/photo-1582735689369-4fe89db7114c?${Q}`,
+  `https://images.unsplash.com/photo-1517677208171-0bc6725a3e60?${Q}`,
+  `https://images.unsplash.com/photo-1563453392212-326f5e854473?${Q}`,
+]
+
+const LIQUOR = [
+  `https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?${Q}`,
+  `https://images.unsplash.com/photo-1553361371-9b22f78e8b1d?${Q}`,
+  `https://images.unsplash.com/photo-1506377247727-4b5f7c94d0b1?${Q}`,
+  `https://images.unsplash.com/photo-1569529465840-d86dea2fd442?${Q}`,
+  `https://images.unsplash.com/photo-1470337458703-46ad1756a187?${Q}`,
+  `https://images.unsplash.com/photo-1547595626-c61a29f496f0?${Q}`,
+  `https://images.unsplash.com/photo-1437418747212-8d9709afab22?${Q}`,
+  `https://images.unsplash.com/photo-1558642452-9d2a7deb7f62?${Q}`,
+  `https://images.unsplash.com/photo-1608270586620-248524c67de9?${Q}`,
+  `https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?${Q}`,
+  `https://images.unsplash.com/photo-1553361371-9b22f78e8b1d?${Q}`,
+  `https://images.unsplash.com/photo-1506377247727-4b5f7c94d0b1?${Q}`,
+]
+
 const RETAIL = [
   `https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?${Q}`,
   `https://images.unsplash.com/photo-1542291026-7eec264c27b1?${Q}`,
@@ -70,6 +100,8 @@ const POOLS = {
   salon: SALON,
   retail: RETAIL,
   grocery: RETAIL,
+  laundry: LAUNDRY,
+  liquor: LIQUOR,
   custom: RETAIL,
 }
 

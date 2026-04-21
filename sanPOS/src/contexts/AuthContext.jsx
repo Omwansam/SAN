@@ -14,6 +14,13 @@ const SESSION_KEY = 'authSession'
 
 const AuthContext = createContext(null)
 
+function readInitialSessionUser(tenantId) {
+  if (!tenantId || typeof tenantId !== 'string') return { user: null }
+  const session = getJSON(tenantId, SESSION_KEY, null)
+  if (session?.id && session?.role) return { user: session }
+  return { user: null }
+}
+
 function authReducer(state, action) {
   switch (action.type) {
     case 'SET_USER':
@@ -27,7 +34,7 @@ function authReducer(state, action) {
 
 export function AuthProvider({ children }) {
   const { tenantId } = useTenant()
-  const [state, dispatch] = useReducer(authReducer, { user: null })
+  const [state, dispatch] = useReducer(authReducer, tenantId, readInitialSessionUser)
 
   useEffect(() => {
     if (!tenantId) {

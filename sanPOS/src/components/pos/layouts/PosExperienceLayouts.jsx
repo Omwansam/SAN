@@ -4,18 +4,30 @@ import {
   CalendarDays,
   LayoutTemplate,
   Pill,
+  Shirt,
   ShoppingBasket,
   UtensilsCrossed,
+  Wine,
 } from 'lucide-react'
 
 function shellClass() {
   return 'shrink-0 rounded-3xl border border-gray-200/80 bg-gradient-to-br from-white via-white to-[var(--brand)]/[0.06] px-4 py-4 shadow-[var(--surface-card-shadow)] dark:border-gray-700/80 dark:from-gray-900 dark:via-gray-900 dark:to-[var(--brand)]/[0.08]'
 }
 
+function PosToolbarRegion({ toolbar }) {
+  if (!toolbar) return null
+  return (
+    <div className="mt-3 border-t border-gray-200/60 pt-3 dark:border-gray-600/50">
+      {toolbar}
+    </div>
+  )
+}
+
 export function RetailPosLayout({
   businessName,
   businessLabel,
   catalogStatsLine,
+  toolbar,
   grid,
   cart,
   mobileFab,
@@ -45,6 +57,109 @@ export function RetailPosLayout({
             {businessLabel}
           </span>
         </div>
+        <PosToolbarRegion toolbar={toolbar} />
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
+        {grid}
+        {cart}
+        {mobileFab}
+        {drawer}
+        {modals}
+      </div>
+    </div>
+  )
+}
+
+export function LaundryPosLayout({
+  businessName,
+  businessLabel,
+  catalogStatsLine,
+  toolbar,
+  grid,
+  cart,
+  mobileFab,
+  drawer,
+  modals,
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <header className={`${shellClass()} border-cyan-200/70 dark:border-cyan-900/45`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-cyan-800 dark:text-cyan-400">
+              <Shirt className="h-3.5 w-3.5" aria-hidden />
+              Laundry point of sale
+            </p>
+            <h1 className="truncate text-lg font-semibold text-gray-900 dark:text-gray-50">
+              {businessName ?? 'Register'}
+            </h1>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {catalogStatsLine}
+              <span className="text-gray-400"> · </span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">
+                {businessLabel}
+              </span>
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full border border-cyan-700/25 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-950 dark:text-cyan-200">
+            Wash · dry · press
+          </span>
+        </div>
+        <p className="mt-3 rounded-xl border border-cyan-200/80 bg-cyan-50/90 px-3 py-2 text-xs text-cyan-950 dark:border-cyan-900/50 dark:bg-cyan-950/35 dark:text-cyan-100">
+          Ring up services by weight, piece, or bag. Use notes on lines for ticket numbers or stains.
+        </p>
+        <PosToolbarRegion toolbar={toolbar} />
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
+        {grid}
+        {cart}
+        {mobileFab}
+        {drawer}
+        {modals}
+      </div>
+    </div>
+  )
+}
+
+export function LiquorPosLayout({
+  businessName,
+  businessLabel,
+  catalogStatsLine,
+  toolbar,
+  grid,
+  cart,
+  mobileFab,
+  drawer,
+  modals,
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      <header className={`${shellClass()} border-amber-200/70 dark:border-amber-900/45`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-900 dark:text-amber-400">
+              <Wine className="h-3.5 w-3.5" aria-hidden />
+              Liquor store checkout
+            </p>
+            <h1 className="truncate text-lg font-semibold text-gray-900 dark:text-gray-50">
+              {businessName ?? 'Register'}
+            </h1>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+              {catalogStatsLine}
+              <span className="text-gray-400"> · </span>
+              <span className="font-medium text-gray-700 dark:text-gray-300">
+                {businessLabel}
+              </span>
+            </p>
+          </div>
+          <span className="shrink-0 rounded-full border border-amber-800/30 bg-amber-500/15 px-3 py-1.5 text-xs font-semibold text-amber-950 dark:text-amber-200">
+            Bottles · cases · mixers
+          </span>
+        </div>
+        <p className="mt-3 rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-xs text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-100">
+          Follow local law: verify customer age at the counter before completing alcohol sales.
+        </p>
+        <PosToolbarRegion toolbar={toolbar} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
         {grid}
@@ -61,6 +176,7 @@ export function GroceryPosLayout({
   businessName,
   businessLabel,
   catalogStatsLine,
+  toolbar,
   grid,
   cart,
   mobileFab,
@@ -94,6 +210,7 @@ export function GroceryPosLayout({
         <p className="mt-3 rounded-xl border border-sky-200/80 bg-sky-50/90 px-3 py-2 text-xs text-sky-950 dark:border-sky-900/50 dark:bg-sky-950/35 dark:text-sky-100">
           Double-check produce codes and weighted items before payment.
         </p>
+        <PosToolbarRegion toolbar={toolbar} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
         {grid}
@@ -110,6 +227,7 @@ export function CustomPosLayout({
   businessName,
   businessLabel,
   catalogStatsLine,
+  toolbar,
   grid,
   cart,
   mobileFab,
@@ -144,6 +262,7 @@ export function CustomPosLayout({
           This layout follows your onboarding choice; enable modules in Settings
           to match how you run the business.
         </p>
+        <PosToolbarRegion toolbar={toolbar} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
         {grid}
@@ -160,6 +279,7 @@ export function PharmacyPosLayout({
   businessName,
   businessLabel,
   catalogStatsLine,
+  toolbar,
   grid,
   cart,
   mobileFab,
@@ -194,6 +314,7 @@ export function PharmacyPosLayout({
           Verify patient ID and Rx details for controlled and prescription lines
           before taking payment.
         </p>
+        <PosToolbarRegion toolbar={toolbar} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
         {grid}
@@ -210,6 +331,7 @@ export function RestaurantPosLayout({
   businessName,
   businessLabel,
   catalogStatsLine,
+  toolbar,
   grid,
   cart,
   mobileFab,
@@ -249,6 +371,7 @@ export function RestaurantPosLayout({
             </span>
           </div>
         </div>
+        <PosToolbarRegion toolbar={toolbar} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
         {grid}
@@ -266,6 +389,7 @@ export function SalonPosLayout({
   businessLabel,
   catalogStatsLine,
   appointmentsEnabled,
+  toolbar,
   grid,
   cart,
   mobileFab,
@@ -306,6 +430,7 @@ export function SalonPosLayout({
             </span>
           </div>
         </div>
+        <PosToolbarRegion toolbar={toolbar} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:gap-4">
         {grid}

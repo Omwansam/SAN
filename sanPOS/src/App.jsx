@@ -5,8 +5,10 @@ import { AppLayout } from './components/layout/AppLayout'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { Spinner } from './components/shared/Spinner'
 import { AuthProvider } from './contexts/AuthContext'
+import { BranchProvider } from './contexts/BranchContext'
 import { CartProvider } from './contexts/CartContext'
 import { CustomerProvider } from './contexts/CustomerContext'
+import { NotificationProvider } from './contexts/NotificationContext'
 import { OrderProvider } from './contexts/OrderContext'
 import { ProductProvider } from './contexts/ProductContext'
 import { TenantProvider } from './contexts/TenantContext'
@@ -14,7 +16,9 @@ import { UIProvider } from './contexts/UIContext'
 
 const Login = lazy(() => import('./pages/Login'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
+const BusinessTypeSelection = lazy(() => import('./pages/BusinessTypeSelection'))
 const POS = lazy(() => import('./pages/POS'))
+const CustomerDisplay = lazy(() => import('./pages/CustomerDisplay'))
 const Orders = lazy(() => import('./pages/Orders'))
 const Products = lazy(() => import('./pages/Products'))
 const Categories = lazy(() => import('./pages/Categories'))
@@ -28,6 +32,12 @@ const ReportsExport = lazy(() => import('./pages/ReportsExport'))
 const Settings = lazy(() => import('./pages/Settings'))
 const SettingsUsers = lazy(() => import('./pages/SettingsUsers'))
 const SettingsRegisters = lazy(() => import('./pages/SettingsRegisters'))
+const SettingsBranches = lazy(() => import('./pages/SettingsBranches'))
+const SettingsReceipt = lazy(() => import('./pages/SettingsReceipt'))
+const SettingsBackup = lazy(() => import('./pages/SettingsBackup'))
+const SettingsBilling = lazy(() => import('./pages/SettingsBilling'))
+const SettingsNotifications = lazy(() => import('./pages/SettingsNotifications'))
+const InventoryLogs = lazy(() => import('./pages/InventoryLogs'))
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin'))
 
 function Page({ children }) {
@@ -46,18 +56,20 @@ export default function App() {
       <UIProvider>
         <TenantProvider>
           <AuthProvider>
-            <ProductProvider>
-              <OrderProvider>
-                <CustomerProvider>
-                  <CartProvider>
-                    <a
-                      href="#main-content"
-                      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-white focus:px-4 focus:py-2 focus:shadow-lg dark:focus:bg-gray-900"
-                    >
-                      Skip to main content
-                    </a>
-                    <div id="main-content">
-                      <Routes>
+            <BranchProvider>
+              <ProductProvider>
+                <OrderProvider>
+                  <CustomerProvider>
+                    <CartProvider>
+                      <NotificationProvider>
+                        <a
+                          href="#main-content"
+                          className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-xl focus:bg-white focus:px-4 focus:py-2 focus:shadow-lg dark:focus:bg-gray-900"
+                        >
+                          Skip to main content
+                        </a>
+                        <div id="main-content">
+                          <Routes>
                         <Route
                           path="/"
                           element={<Navigate to="/login" replace />}
@@ -79,6 +91,14 @@ export default function App() {
                           }
                         />
                         <Route element={<ProtectedRoute />}>
+                          <Route
+                            path="/business-type"
+                            element={
+                              <Page>
+                                <BusinessTypeSelection />
+                              </Page>
+                            }
+                          />
                           <Route element={<AppLayout />}>
                             <Route
                               path="/pos"
@@ -184,14 +204,62 @@ export default function App() {
                                 </Page>
                               }
                             />
-                            <Route
-                              path="/settings/registers"
-                              element={
-                                <Page>
-                                  <SettingsRegisters />
-                                </Page>
-                              }
-                            />
+                        <Route
+                          path="/settings/registers"
+                          element={
+                            <Page>
+                              <SettingsRegisters />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/branches"
+                          element={
+                            <Page>
+                              <SettingsBranches />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/receipt"
+                          element={
+                            <Page>
+                              <SettingsReceipt />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/backup"
+                          element={
+                            <Page>
+                              <SettingsBackup />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/billing"
+                          element={
+                            <Page>
+                              <SettingsBilling />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/notifications"
+                          element={
+                            <Page>
+                              <SettingsNotifications />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/inventory/logs"
+                          element={
+                            <Page>
+                              <InventoryLogs />
+                            </Page>
+                          }
+                        />
                             <Route
                               path="/superadmin"
                               element={
@@ -201,17 +269,27 @@ export default function App() {
                               }
                             />
                           </Route>
+                          <Route
+                            path="/customer-display"
+                            element={
+                              <Page>
+                                <CustomerDisplay />
+                              </Page>
+                            }
+                          />
                         </Route>
                         <Route
                           path="*"
                           element={<Navigate to="/login" replace />}
                         />
-                      </Routes>
-                    </div>
-                  </CartProvider>
-                </CustomerProvider>
-              </OrderProvider>
-            </ProductProvider>
+                          </Routes>
+                        </div>
+                      </NotificationProvider>
+                    </CartProvider>
+                  </CustomerProvider>
+                </OrderProvider>
+              </ProductProvider>
+            </BranchProvider>
           </AuthProvider>
         </TenantProvider>
       </UIProvider>

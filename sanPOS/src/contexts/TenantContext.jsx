@@ -13,6 +13,20 @@ const CONFIG_KEY = 'config'
 
 const TenantContext = createContext(null)
 
+function readInitialTenantState() {
+  const saved = getGlobalJSON('activeTenantId', null)
+  if (!saved || typeof saved !== 'string') {
+    return { tenantId: null, tenantConfig: null }
+  }
+  const raw = getJSON(saved, CONFIG_KEY, null)
+  const normalized = withTenantDefaults(raw, saved)
+  if (typeof document !== 'undefined') {
+    const brand = normalized?.primaryColor || '#2563eb'
+    document.documentElement.style.setProperty('--brand', brand)
+  }
+  return { tenantId: saved, tenantConfig: normalized }
+}
+
 function tenantReducer(state, action) {
   switch (action.type) {
     case 'SET_TENANT':
@@ -31,17 +45,7 @@ function tenantReducer(state, action) {
 }
 
 export function TenantProvider({ children }) {
-  const [state, dispatch] = useReducer(tenantReducer, {
-    tenantId: null,
-    tenantConfig: null,
-  })
-
-  useEffect(() => {
-    const saved = getGlobalJSON('activeTenantId', null)
-    if (saved && typeof saved === 'string') {
-      dispatch({ type: 'SET_TENANT', tenantId: saved })
-    }
-  }, [])
+  const [state, dispatch] = useReducer(tenantReducer, undefined, readInitialTenantState)
 
   useEffect(() => {
     if (!state.tenantId) {

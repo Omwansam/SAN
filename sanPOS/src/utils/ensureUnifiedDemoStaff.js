@@ -1,4 +1,7 @@
-import { UNIFIED_POS_LOGIN } from '../constants/demoCategoryWorkspaces'
+import {
+  UNIFIED_POS_LOGIN,
+  isCategoryDemoTenantId,
+} from '../constants/demoCategoryWorkspaces'
 import { hashPassword } from './password'
 import { getJSON, setJSON } from './storage'
 import { newId } from './uuid'
@@ -43,6 +46,7 @@ export async function ensureUnifiedDemoStaff(tenantId) {
       pin: spec.pin,
       passwordHash: passHash,
       active: true,
+      branchIds: [],
     }
     if (idx >= 0) {
       list[idx] = { ...list[idx], ...patch, id: list[idx].id }
@@ -54,6 +58,25 @@ export async function ensureUnifiedDemoStaff(tenantId) {
         registerId: null,
       })
     }
+  }
+
+  if (isCategoryDemoTenantId(tid)) {
+    const reservedPins = new Set([
+      String(UNIFIED_POS_LOGIN.adminPin),
+      String(UNIFIED_POS_LOGIN.cashierPin),
+    ])
+    const keepEmails = new Set(
+      specs.map((s) => String(s.email ?? '').toLowerCase()),
+    )
+    list = list.map((u) => {
+      const em = String(u.email ?? '').toLowerCase()
+      if (keepEmails.has(em)) return u
+      const p = String(u.pin ?? '')
+      if (p && reservedPins.has(p)) {
+        return { ...u, pin: '' }
+      }
+      return u
+    })
   }
 
   setJSON(tid, 'users', list)

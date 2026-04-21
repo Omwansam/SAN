@@ -1,4 +1,5 @@
 import { UNIFIED_POS_LOGIN } from '../constants/demoCategoryWorkspaces'
+import { MAIN_BRANCH_ID, ensureBranchesInStorage } from './defaultBranches'
 import { ensureUnifiedDemoStaff } from './ensureUnifiedDemoStaff'
 import { stockImageUrlForSeed } from './productStockImages'
 import { getJSON, setJSON } from './storage'
@@ -86,6 +87,52 @@ function catalogForType(businessType) {
       ],
     }
   }
+  if (businessType === 'laundry') {
+    return {
+      categories: [
+        { id: 'c1', name: 'Wash & fold', color: '#06b6d4', icon: 'shirt', sortOrder: 0 },
+        { id: 'c2', name: 'Dry cleaning', color: '#0891b2', icon: 'droplet', sortOrder: 1 },
+        { id: 'c3', name: 'Extras', color: '#22d3ee', icon: 'sparkles', sortOrder: 2 },
+      ],
+      products: [
+        ['Wash & fold per kg', 120, 'c1'],
+        ['Wash & fold large bag', 450, 'c1'],
+        ['Single item wash', 80, 'c1'],
+        ['Bedding set wash', 350, 'c1'],
+        ['Suit dry clean', 650, 'c2'],
+        ['Dress dry clean', 520, 'c2'],
+        ['Shirt laundered press', 180, 'c2'],
+        ['Coat dry clean', 890, 'c2'],
+        ['Stain treatment add-on', 150, 'c3'],
+        ['Express same-day fee', 200, 'c3'],
+        ['Fabric softener upgrade', 50, 'c3'],
+        ['Hanger / bag supply', 40, 'c3'],
+      ],
+    }
+  }
+  if (businessType === 'liquor') {
+    return {
+      categories: [
+        { id: 'c1', name: 'Spirits', color: '#b45309', icon: 'wine', sortOrder: 0 },
+        { id: 'c2', name: 'Wine', color: '#7c2d12', icon: 'cup', sortOrder: 1 },
+        { id: 'c3', name: 'Beer & mixers', color: '#ca8a04', icon: 'basket', sortOrder: 2 },
+      ],
+      products: [
+        ['Local gin 750ml', 1850, 'c1'],
+        ['Imported whisky 750ml', 4200, 'c1'],
+        ['Vodka 750ml', 2100, 'c1'],
+        ['Brandy 750ml', 1950, 'c1'],
+        ['House red 750ml', 980, 'c2'],
+        ['House white 750ml', 980, 'c2'],
+        ['Sparkling wine 750ml', 1450, 'c2'],
+        ['Rosé 750ml', 1100, 'c2'],
+        ['Lager 6-pack', 720, 'c3'],
+        ['Stout 4-pack', 640, 'c3'],
+        ['Cider 500ml', 180, 'c3'],
+        ['Tonic water 1L', 150, 'c3'],
+      ],
+    }
+  }
   return {
     categories: [
       { id: 'c1', name: 'Apparel', color: '#6366f1', icon: 'shirt', sortOrder: 0 },
@@ -162,6 +209,8 @@ export async function seedTenant(tenantId, businessType = 'retail') {
 
   setJSON(tenantId, 'categories', categories)
   setJSON(tenantId, 'products', products)
+
+  ensureBranchesInStorage(tenantId)
 
   await ensureUnifiedDemoStaff(tenantId)
   const savedUsers = getJSON(tenantId, 'users', [])
@@ -242,6 +291,7 @@ export async function seedTenant(tenantId, businessType = 'retail') {
     return {
       id: newId(),
       tenantId,
+      branchId: MAIN_BRANCH_ID,
       registerId: regId,
       cashierId: cashierRec?.id ?? null,
       customerId: customers[idx % customers.length].id,

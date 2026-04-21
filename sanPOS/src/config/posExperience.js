@@ -8,6 +8,8 @@ const BY_TYPE = {
   pharmacy: { kitchen: false, tables: false, layout: 'pharmacy' },
   restaurant: { kitchen: true, tables: true, layout: 'restaurant' },
   salon: { kitchen: false, tables: false, layout: 'salon' },
+  laundry: { kitchen: false, tables: false, layout: 'laundry' },
+  liquor: { kitchen: false, tables: false, layout: 'liquor' },
   custom: { kitchen: false, tables: false, layout: 'custom' },
 }
 

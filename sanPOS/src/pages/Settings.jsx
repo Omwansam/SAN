@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import toast from 'react-hot-toast'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import * as Switch from '@radix-ui/react-switch'
 import { Button } from '../components/shared/Button'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
@@ -127,6 +127,36 @@ export default function Settings() {
           </div>
         </section>
       ) : null}
+      <section className="space-y-3 rounded-2xl border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-gray-900">
+        <h2 className="font-semibold">Workspace</h2>
+        <ul className="flex flex-col gap-2 text-sm font-medium text-[var(--brand)]">
+          <li>
+            <Link to="/settings/branches" className="hover:underline">
+              Branches &amp; staff access
+            </Link>
+          </li>
+          <li>
+            <Link to="/settings/receipt" className="hover:underline">
+              Receipt layout
+            </Link>
+          </li>
+          <li>
+            <Link to="/settings/backup" className="hover:underline">
+              Backup &amp; restore
+            </Link>
+          </li>
+          <li>
+            <Link to="/settings/billing" className="hover:underline">
+              Billing (simulated)
+            </Link>
+          </li>
+          <li>
+            <Link to="/settings/notifications" className="hover:underline">
+              Notification history
+            </Link>
+          </li>
+        </ul>
+      </section>
       <section className="rounded-2xl border border-red-200 bg-red-50/50 p-6 dark:border-red-900 dark:bg-red-950/20">
         <h2 className="font-semibold text-red-800 dark:text-red-200">Danger zone</h2>
         <p className="mt-2 text-sm text-red-700 dark:text-red-300">

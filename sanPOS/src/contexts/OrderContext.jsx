@@ -6,7 +6,9 @@ import {
   useMemo,
   useReducer,
 } from 'react'
+import { MAIN_BRANCH_ID } from '../utils/defaultBranches'
 import { getJSON, setJSON } from '../utils/storage'
+import { useBranch } from './BranchContext'
 import { useTenant } from './TenantContext'
 
 const ORDERS_KEY = 'orders'
@@ -32,8 +34,13 @@ function orderReducer(state, action) {
   }
 }
 
+function branchOfOrder(o) {
+  return o.branchId ?? MAIN_BRANCH_ID
+}
+
 export function OrderProvider({ children }) {
   const { tenantId } = useTenant()
+  const { activeBranchId } = useBranch()
   const [state, dispatch] = useReducer(orderReducer, { orders: [] })
 
   useEffect(() => {
@@ -52,13 +59,27 @@ export function OrderProvider({ children }) {
     setJSON(tenantId, ORDERS_KEY, state.orders)
   }, [tenantId, state.orders])
 
-  const setOrders = useCallback((orders) => {
-    dispatch({ type: 'SET_ORDERS', orders })
+  const orders = useMemo(() => {
+    if (!activeBranchId) return state.orders
+    return state.orders.filter((o) => branchOfOrder(o) === activeBranchId)
+  }, [state.orders, activeBranchId])
+
+  const setOrders = useCallback((nextOrders) => {
+    dispatch({ type: 'SET_ORDERS', orders: nextOrders })
   }, [])
 
-  const createOrder = useCallback((order) => {
-    dispatch({ type: 'ADD_ORDER', order })
-  }, [])
+  const createOrder = useCallback(
+    (order) => {
+      dispatch({
+        type: 'ADD_ORDER',
+        order: {
+          ...order,
+          branchId: order.branchId ?? activeBranchId ?? MAIN_BRANCH_ID,
+        },
+      })
+    },
+    [activeBranchId],
+  )
 
   const updateOrder = useCallback((order) => {
     dispatch({ type: 'UPDATE_ORDER', order })
@@ -87,7 +108,8 @@ export function OrderProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      orders: state.orders,
+      orders,
+      allOrders: state.orders,
       setOrders,
       createOrder,
       updateOrder,
@@ -95,6 +117,7 @@ export function OrderProvider({ children }) {
       reloadFromStorage,
     }),
     [
+      orders,
       state.orders,
       setOrders,
       createOrder,

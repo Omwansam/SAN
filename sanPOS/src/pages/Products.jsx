@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button } from '../components/shared/Button'
 import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { EmptyState } from '../components/shared/EmptyState'
@@ -17,6 +17,8 @@ export default function Products() {
   const { can } = useAuth()
   const { products, categories, addProduct, updateProduct, deleteProduct } =
     useProducts()
+  const location = useLocation()
+  const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [del, setDel] = useState(null)
@@ -28,6 +30,7 @@ export default function Products() {
   const [form, setForm] = useState({
     name: '',
     sku: '',
+    barcode: '',
     price: '',
     categoryId: '',
     stock: '0',
@@ -36,19 +39,23 @@ export default function Products() {
     controlled: false,
   })
 
-  const reset = useCallback(() => {
-    setForm({
-      name: '',
-      sku: '',
-      price: '',
-      categoryId: categories[0]?.id ?? '',
-      stock: '0',
-      imageUrl: '',
-      kitchenStationId: stations[0]?.id ?? '',
-      controlled: false,
-    })
-    setEditing(null)
-  }, [categories, stations])
+  const reset = useCallback(
+    (overrides = {}) => {
+      setForm({
+        name: overrides.name ?? '',
+        sku: overrides.sku ?? '',
+        barcode: overrides.barcode ?? '',
+        price: overrides.price ?? '',
+        categoryId: overrides.categoryId ?? categories[0]?.id ?? '',
+        stock: overrides.stock ?? '0',
+        imageUrl: overrides.imageUrl ?? '',
+        kitchenStationId: overrides.kitchenStationId ?? stations[0]?.id ?? '',
+        controlled: overrides.controlled ?? false,
+      })
+      setEditing(null)
+    },
+    [categories, stations],
+  )
 
   const openNew = () => {
     reset()
@@ -60,6 +67,7 @@ export default function Products() {
     setForm({
       name: p.name,
       sku: p.sku ?? '',
+      barcode: p.barcode ?? '',
       price: String(p.price),
       categoryId: p.categoryId ?? '',
       stock: String(p.stock ?? 0),
@@ -81,7 +89,7 @@ export default function Products() {
       name: form.name.trim(),
       description: editing?.description ?? '',
       sku: form.sku.trim(),
-      barcode: editing?.barcode ?? '',
+      barcode: form.barcode.trim(),
       categoryId: form.categoryId || categories[0]?.id,
       price: Number(form.price) || 0,
       costPrice: editing?.costPrice ?? 0,
@@ -117,6 +125,23 @@ export default function Products() {
     () => [...products].sort((a, b) => a.name.localeCompare(b.name)),
     [products],
   )
+
+  useEffect(() => {
+    const raw = location.state?.prefillBarcode
+    if (!tenantId || !raw) return
+    const decoded = String(raw).trim()
+    if (!decoded) return
+    if (!can('catalog')) return
+    const guardKey = `sanpos:prefillBarcode:${tenantId}:${decoded}`
+    if (sessionStorage.getItem(guardKey)) return
+    sessionStorage.setItem(guardKey, '1')
+    window.setTimeout(() => {
+      reset({ barcode: decoded })
+      setOpen(true)
+      sessionStorage.removeItem(guardKey)
+      navigate('.', { replace: true, state: {} })
+    }, 0)
+  }, [location.state, tenantId, reset, can, navigate])
 
   const canEdit = can('catalog')
   if (!tenantId || !tenantConfig) return null
@@ -198,6 +223,13 @@ export default function Products() {
         <div className="space-y-3">
           <Input label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <Input label="SKU" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+          <Input
+            label="Barcode"
+            value={form.barcode}
+            onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+            placeholder="EAN / UPC / Code 128"
+            autoComplete="off"
+          />
           <Input label="Price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Category

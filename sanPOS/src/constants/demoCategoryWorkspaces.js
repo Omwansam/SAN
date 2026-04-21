@@ -80,7 +80,36 @@ export const DEMO_CATEGORY_PRESETS = [
       loyalty: true,
     },
   },
+  {
+    slug: 'demo-laundry',
+    label: 'Laundry point',
+    subtitle: '12 SKUs · wash & fold, dry clean, extras',
+    businessType: 'laundry',
+    businessName: 'Demo FreshFold Laundry',
+    modules: {
+      ...baseModules,
+      inventory: true,
+      loyalty: true,
+      appointments: true,
+    },
+  },
+  {
+    slug: 'demo-liquor',
+    label: 'Liquor store',
+    subtitle: '12 SKUs · spirits, wine, beer & mixers',
+    businessType: 'liquor',
+    businessName: 'Demo Cellar & Spirits',
+    modules: { ...baseModules, inventory: true, loyalty: true },
+  },
 ]
 
 /** Original all-in-one slug (pharmacy-heavy); same catalogue as demo-pharmacy. */
 export const LEGACY_HUB_SLUG = 'demo'
+
+/** True for built-in category demo slugs (unified staff + PINs). */
+export function isCategoryDemoTenantId(tenantId) {
+  const t = String(tenantId ?? '').trim().toLowerCase()
+  if (!t) return false
+  if (t === LEGACY_HUB_SLUG) return true
+  return DEMO_CATEGORY_PRESETS.some((p) => p.slug === t)
+}

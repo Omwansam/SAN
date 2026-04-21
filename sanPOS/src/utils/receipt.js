@@ -47,9 +47,15 @@ function lineRow(it, tenantConfig) {
 /**
  * @param {object} order
  * @param {object} tenantConfig
- * @param {{ cashierName?: string, registerId?: string }} meta
+ * @param {{
+ *   cashierName?: string
+ *   registerId?: string
+ *   customerName?: string
+ *   branchName?: string
+ * }} meta
  */
 export function generateReceiptHTML(order, tenantConfig, meta = {}) {
+  const rec = tenantConfig?.receipt ?? {}
   const name = tenantConfig?.businessName ?? 'Receipt'
   const lines = (order.items ?? []).map((it) => lineRow(it, tenantConfig)).join('')
   const sub = formatCurrency(order.subtotal ?? 0, tenantConfig)
@@ -95,25 +101,51 @@ export function generateReceiptHTML(order, tenantConfig, meta = {}) {
   const when = order.createdAt
     ? formatDate(new Date(order.createdAt), 'PPpp')
     : ''
-  const logo = receiptLogoTag(tenantConfig?.logo)
+  const logoSrc = String(rec.logoDataUrl ?? '').trim() || tenantConfig?.logo
+  const logo = receiptLogoTag(logoSrc)
   const qrSrc = receiptQrImg(order)
   const taxableNote =
     discAmt > 0
       ? `<p style="margin:2px 0;font-size:12px;color:#555">Taxable after discounts: ${formatCurrency(order.taxableBase ?? 0, tenantConfig)}</p>`
       : ''
+  const showTax = rec.showTax !== false
+  const showCashier = rec.showCashier !== false
+  const showCustomer = rec.showCustomer !== false
+  const cashierLine =
+    showCashier && meta.cashierName
+      ? `<p style="margin:4px 0;font-size:12px;">Cashier: ${escapeHtml(meta.cashierName)}</p>`
+      : ''
+  const customerLine =
+    showCustomer && meta.customerName
+      ? `<p style="margin:4px 0;font-size:12px;">Customer: ${escapeHtml(meta.customerName)}</p>`
+      : ''
+  const branchLine = meta.branchName
+    ? `<p style="margin:4px 0;font-size:12px;">Branch: ${escapeHtml(meta.branchName)}</p>`
+    : ''
+  const taxBlock =
+    showTax && rate > 0
+      ? `<p style="margin:4px 0;">${escapeHtml(taxLabel)} (${rate}%): ${tax}</p>`
+      : showTax
+        ? `<p style="margin:4px 0;">${escapeHtml(taxLabel)}: ${tax}</p>`
+        : ''
+  const footerText =
+    String(rec.footerMessage ?? '').trim() ||
+    String(tenantConfig?.receiptFooter ?? '').trim()
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Receipt ${escapeHtml(order.id)}</title></head><body style="font-family:system-ui,sans-serif;max-width:380px;margin:0 auto;padding:16px;">
   ${logo}
   <h1 style="font-size:1.15rem;margin:0 0 6px;text-align:center">${escapeHtml(name)}</h1>
   <p style="margin:0;font-size:12px;color:#555;text-align:center">${when}</p>
-  <p style="margin:4px 0;font-size:12px;">Cashier: ${escapeHtml(meta.cashierName ?? '—')}</p>
+  ${branchLine}
+  ${cashierLine}
+  ${customerLine}
   <p style="margin:4px 0 12px;font-size:12px;">Register: ${escapeHtml(meta.registerId ?? '—')}</p>
   <table width="100%" cellpadding="5" style="border-collapse:collapse;font-size:13px;"><thead><tr style="border-bottom:1px solid #ddd"><th align="left">Item</th><th>Qty</th><th align="right">Price</th><th align="right">Total</th></tr></thead><tbody>${lines}</tbody></table>
   <div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee">
     <p style="margin:4px 0;">Subtotal: ${sub}</p>
     ${orderDiscLine}
     ${taxableNote}
-    <p style="margin:4px 0;">${escapeHtml(taxLabel)}${rate > 0 ? ` (${rate}%)` : ''}: ${tax}</p>
+    ${taxBlock}
     <p style="margin:8px 0 0;font-size:1.05rem;font-weight:700;">Total: ${tot}</p>
     ${tipsLine}
     <p style="margin-top:10px;font-size:13px;line-height:1.5"><strong>Payments</strong><br/>${pay}</p>
@@ -124,7 +156,7 @@ export function generateReceiptHTML(order, tenantConfig, meta = {}) {
     <img src="${qrSrc}" width="140" height="140" alt="Receipt verification QR" style="display:inline-block" />
     <p style="margin:6px 0 0;font-size:10px;color:#888">Scan for order reference</p>
   </div>
-  <p style="margin-top:16px;font-size:12px;color:#444;white-space:pre-wrap;text-align:center">${escapeHtml(tenantConfig?.receiptFooter ?? '')}</p>
+  <p style="margin-top:16px;font-size:12px;color:#444;white-space:pre-wrap;text-align:center">${escapeHtml(footerText)}</p>
   <p style="margin-top:12px;font-size:11px;color:#888;text-align:center">Order ID: ${escapeHtml(order.id)}</p>
   </body></html>`
 }

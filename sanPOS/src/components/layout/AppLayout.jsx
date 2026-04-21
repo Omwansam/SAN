@@ -1,10 +1,12 @@
 import { Outlet } from 'react-router-dom'
+import { SessionLockOverlay } from './SessionLockOverlay'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 
 export function AppLayout() {
   return (
     <div className="flex min-h-screen bg-[var(--surface-muted)] dark:bg-[var(--surface-muted)]">
+      <SessionLockOverlay />
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />

@@ -1,0 +1,642 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  active
+  suspended
+}
+
+enum UserRole {
+  cashier
+  manager
+  admin
+  superadmin
+}
+
+enum RegisterStatus {
+  open
+  closed
+}
+
+enum OrderStatus {
+  completed
+  refunded
+  cancelled
+}
+
+enum PaymentStatus {
+  paid
+  pending
+  failed
+}
+
+enum PaymentMethod {
+  cash
+  card
+  mpesa
+  bank_transfer
+  credit
+}
+
+enum PrepStatus {
+  queued
+  preparing
+  ready
+  served
+}
+
+enum ServiceMode {
+  delivery
+  dine_in
+  takeaway
+}
+
+enum NotificationLevel {
+  info
+  success
+  warning
+  error
+}
+
+enum DiscountType {
+  none
+  percent
+  flat
+}
+
+model Tenant {
+  id           String       @id @default(cuid())
+  slug         String       @unique
+  businessName String
+  businessType String
+  status       TenantStatus @default(active)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  domains       TenantDomain[]
+  config        TenantConfig?
+  users         User[]
+  branches      Branch[]
+  registers     Register[]
+  categories    Category[]
+  products      Product[]
+  customers     Customer[]
+  orders        Order[]
+  stockLogs     StockLog[]
+  dispensing    DispensingLog[]
+  kitchenTickets KitchenTicket[]
+  tables        DiningTable[]
+  appointments  Appointment[]
+  notifications Notification[]
+  heldCarts     HeldCart[]
+  authSessions  AuthSession[]
+  runtimeState  TenantRuntimeState?
+  draftCarts    DraftCart[]
+}
+
+model TenantDomain {
+  id        String   @id @default(cuid())
+  tenantId  String
+  domain    String   @unique
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model TenantConfig {
+  id                  String   @id @default(cuid())
+  tenantId            String   @unique
+  logo                String?
+  primaryColor        String?  @default("#2563eb")
+  timezone            String?  @default("Africa/Nairobi")
+  language            String?  @default("en")
+  currencyCode        String?  @default("KES")
+  currencySymbol      String?  @default("KSh")
+  currencyPosition    String?  @default("before")
+  taxRate             Float    @default(0)
+  taxLabel            String?  @default("VAT")
+  receiptFooter       String?
+  paymentMethods      Json?
+  kitchenStations     Json?
+  modules             Json?
+  billing             Json?
+  receipt             Json?
+  roles               Json?
+  customFields        Json?
+  deliveryFee         Int      @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String
+  name         String
+  email        String
+  passwordHash String
+  role         UserRole  @default(cashier)
+  pin          String?
+  active       Boolean   @default(true)
+  lastLogin    DateTime?
+  registerId   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  register    Register?    @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  userBranches UserBranch[]
+  orders      Order[]      @relation("CashierOrders")
+  stockLogs   StockLog[]
+  authSessions AuthSession[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([registerId])
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  address   String?
+  createdAt DateTime @default(now())
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userBranches  UserBranch[]
+  orders        Order[]
+  stockLogs     StockLog[]
+  kitchenTickets KitchenTicket[]
+  tables        DiningTable[]
+  heldCarts     HeldCart[]
+  runtimeStates TenantRuntimeState[]
+  draftCarts    DraftCart[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model UserBranch {
+  userId   String
+  branchId String
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@id([userId, branchId])
+  @@index([branchId])
+}
+
+model Register {
+  id           String         @id @default(cuid())
+  tenantId     String
+  name         String
+  openingFloat Int            @default(0)
+  currentFloat Int            @default(0)
+  status       RegisterStatus @default(open)
+  cashierId    String?
+  createdAt    DateTime       @default(now())
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+  users  User[]
+  runtimeStates TenantRuntimeState[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Category {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  color     String?
+  icon      String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Product {
+  id               String   @id @default(cuid())
+  tenantId         String
+  categoryId       String?
+  name             String
+  description      String?
+  sku              String?
+  barcode          String?
+  price            Int
+  costPrice        Int?
+  taxable          Boolean  @default(true)
+  imageUrl         String?
+  stock            Int      @default(0)
+  lowStockAlert    Int      @default(0)
+  unit             String?  @default("ea")
+  variants         Json?
+  active           Boolean  @default(true)
+  controlled       Boolean  @default(false)
+  kitchenStationId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  orderItems  OrderItem[]
+  stockLogs   StockLog[]
+  draftLines  DraftCartLine[]
+
+  @@index([tenantId])
+  @@index([categoryId])
+  @@unique([tenantId, sku])
+  @@unique([tenantId, barcode])
+}
+
+model Customer {
+  id            String   @id @default(cuid())
+  tenantId      String
+  name          String
+  phone         String?
+  email         String?
+  loyaltyPoints Int      @default(0)
+  totalSpend    Int      @default(0)
+  tags          Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders       Order[]
+  appointments Appointment[]
+  dispensing   DispensingLog[]
+  activeDraftCarts DraftCart[]
+
+  @@index([tenantId])
+  @@index([tenantId, phone])
+  @@index([tenantId, email])
+}
+
+model Order {
+  id               String        @id @default(cuid())
+  tenantId         String
+  branchId         String?
+  registerId       String?
+  cashierId        String?
+  customerId       String?
+  customerName     String?
+  status           OrderStatus   @default(completed)
+  paymentStatus    PaymentStatus @default(paid)
+  subtotal         Int
+  taxAmount        Int           @default(0)
+  discountAmount   Int           @default(0)
+  taxableBase      Int           @default(0)
+  total            Int
+  change           Int           @default(0)
+  receiptPrinted   Boolean       @default(false)
+  notes            String?
+  partial          Boolean       @default(false)
+  tipsTotal        Int           @default(0)
+  deliveryFeeAmount Int          @default(0)
+  serviceMode      ServiceMode?
+  serviceModeLabel String?
+  deliveryAddress  String?
+  deliveryPhone    String?
+  deliveryRider    String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  register      Register?     @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  cashier       User?         @relation("CashierOrders", fields: [cashierId], references: [id], onDelete: SetNull)
+  customer      Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items         OrderItem[]
+  payments      Payment[]
+  kitchenTicket KitchenTicket?
+  dispensing    DispensingLog?
+
+  @@index([tenantId])
+  @@index([tenantId, createdAt])
+  @@index([branchId])
+  @@index([registerId])
+  @@index([cashierId])
+  @@index([customerId])
+}
+
+model OrderItem {
+  id                String   @id @default(cuid())
+  orderId           String
+  productId         String?
+  name              String
+  qty               Int
+  unitPrice         Int
+  discount          Int      @default(0)
+  discountPercent   Float    @default(0)
+  tax               Int      @default(0)
+  total             Int
+  rxNumber          String?
+  prescriber        String?
+  patientDOB        String?
+  controlled        Boolean  @default(false)
+  deaNumber         String?
+  refillsAuthorized Int      @default(0)
+  refillsRemaining  Int      @default(0)
+  pickupVerified    Boolean  @default(false)
+  pickupIdLast4     String?
+  prescriptionNotes String?
+  prescriptionImage String?
+  createdAt         DateTime @default(now())
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  orderId   String
+  method    PaymentMethod
+  amount    Int
+  reference String?
+  createdAt DateTime      @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+}
+
+model StockLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  branchId   String?
+  productId  String?
+  productName String?
+  delta      Int
+  reason     String
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch  Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([branchId])
+  @@index([productId])
+  @@index([userId])
+}
+
+model DispensingLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  orderId    String?  @unique
+  cashierId  String?
+  customerId String?
+  createdAt  DateTime @default(now())
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  lines    DispensingLine[]
+
+  @@index([tenantId])
+  @@index([cashierId])
+  @@index([customerId])
+}
+
+model DispensingLine {
+  id                String   @id @default(cuid())
+  dispensingLogId   String
+  name              String
+  qty               Int
+  rxNumber          String?
+  prescriber        String?
+  patientDOB        String?
+  controlled        Boolean  @default(false)
+  deaNumber         String?
+  refillsAuthorized Int      @default(0)
+  refillsRemaining  Int      @default(0)
+  pickupVerified    Boolean  @default(false)
+  pickupIdLast4     String?
+
+  dispensingLog DispensingLog @relation(fields: [dispensingLogId], references: [id], onDelete: Cascade)
+
+  @@index([dispensingLogId])
+}
+
+model KitchenTicket {
+  id        String   @id @default(cuid())
+  tenantId  String
+  orderId   String   @unique
+  branchId  String?
+  status    String?  @default("preparing")
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  items  KitchenTicketItem[]
+
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+model KitchenTicketItem {
+  id         String     @id @default(cuid())
+  ticketId   String
+  lineKey    String?
+  productId  String?
+  name       String
+  qty        Int
+  unitPrice  Int
+  discount   Int        @default(0)
+  tax        Int        @default(0)
+  total      Int
+  prepStatus PrepStatus @default(queued)
+  stationId  String?    @default("hot")
+
+  ticket KitchenTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model DiningTable {
+  id           String   @id @default(cuid())
+  tenantId     String
+  branchId     String?
+  label        String
+  x            Float
+  y            Float
+  capacity     Int?
+  status       String?
+  orderId      String?
+  currentTotal Int?     @default(0)
+  serverName   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+model Appointment {
+  id              String   @id @default(cuid())
+  tenantId        String
+  customerId      String?
+  title           String
+  startAt         DateTime
+  endAt           DateTime
+  backgroundColor String?  @default("#6366f1")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([customerId])
+  @@index([tenantId, startAt])
+}
+
+model Notification {
+  id        String            @id @default(cuid())
+  tenantId  String
+  level     NotificationLevel @default(info)
+  title     String?
+  message   String?
+  createdAt DateTime          @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model HeldCart {
+  id        String   @id @default(cuid())
+  tenantId  String
+  branchId  String?
+  snapshot  Json
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+model AuthSession {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String?
+  tokenHash  String?
+  userName   String?
+  userEmail  String?
+  role       UserRole?
+  issuedAt   DateTime @default(now())
+  expiresAt  DateTime?
+  revokedAt  DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model TenantRuntimeState {
+  id               String   @id @default(cuid())
+  tenantId         String   @unique
+  activeBranchId   String?
+  activeRegisterId String?
+  zReportClosed    Boolean  @default(false)
+  updatedAt        DateTime @updatedAt
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  activeBranch   Branch?   @relation(fields: [activeBranchId], references: [id], onDelete: SetNull)
+  activeRegister Register? @relation(fields: [activeRegisterId], references: [id], onDelete: SetNull)
+
+  @@index([activeBranchId])
+  @@index([activeRegisterId])
+}
+
+model DraftCart {
+  id                 String       @id @default(cuid())
+  tenantId           String
+  branchId           String
+  activeCustomerId   String?
+  serviceMode        ServiceMode  @default(delivery)
+  orderDiscountType  DiscountType @default(none)
+  orderDiscountValue Float        @default(0)
+  deliveryAddress    String?
+  deliveryPhone      String?
+  deliveryRiderName  String?
+  updatedAt          DateTime     @updatedAt
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch         Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  activeCustomer Customer? @relation(fields: [activeCustomerId], references: [id], onDelete: SetNull)
+  lines          DraftCartLine[]
+
+  @@unique([tenantId, branchId])
+  @@index([tenantId])
+  @@index([activeCustomerId])
+}
+
+model DraftCartLine {
+  id                String   @id @default(cuid())
+  draftCartId       String
+  productId         String?
+  name              String
+  qty               Int
+  unitPrice         Int
+  discount          Int      @default(0)
+  discountPercent   Float    @default(0)
+  note              String?
+  controlled        Boolean  @default(false)
+  rxNumber          String?
+  prescriber        String?
+  patientDOB        String?
+  deaNumber         String?
+  refillsAuthorized Int      @default(0)
+  refillsRemaining  Int      @default(0)
+  pickupVerified    Boolean  @default(false)
+  pickupIdLast4     String?
+  kitchenStationId  String?
+  prescriptionNotes String?
+  prescriptionImage String?
+  createdAt         DateTime @default(now())
+
+  draftCart DraftCart @relation(fields: [draftCartId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([draftCartId])
+  @@index([productId])
+}

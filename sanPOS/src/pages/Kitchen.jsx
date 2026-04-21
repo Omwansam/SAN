@@ -5,6 +5,7 @@ import { Button } from '../components/shared/Button'
 import { EmptyState } from '../components/shared/EmptyState'
 import { Badge } from '../components/shared/Badge'
 import { getPosExperience } from '../config/posExperience'
+import { useBranch } from '../hooks/useBranch'
 import { useTenant } from '../hooks/useTenant'
 import { getJSON, setJSON } from '../utils/storage'
 import { DEFAULT_KITCHEN_STATIONS } from '../utils/tenantDefaults'
@@ -19,6 +20,7 @@ function advancePrepStatus(status) {
 
 export default function Kitchen() {
   const { tenantId, tenantConfig } = useTenant()
+  const { activeBranchId } = useBranch()
   const [queue, setQueue] = useState([])
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -32,7 +34,7 @@ export default function Kitchen() {
   useEffect(() => {
     if (!tenantId) return
     queueMicrotask(() => setQueue(getJSON(tenantId, 'kitchenQueue', [])))
-  }, [tenantId])
+  }, [tenantId, activeBranchId])
 
   const persist = useCallback(
     (next) => {
@@ -54,6 +56,13 @@ export default function Kitchen() {
   }
 
   function ticketVisible(ticket) {
+    if (
+      activeBranchId &&
+      ticket.branchId &&
+      ticket.branchId !== activeBranchId
+    ) {
+      return false
+    }
     if (stationFilter === 'all') return true
     return ticket.items.some((it) => (it.stationId || 'hot') === stationFilter)
   }

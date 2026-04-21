@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import * as Switch from '@radix-ui/react-switch'
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { Button } from '../components/shared/Button'
 import { Input } from '../components/shared/Input'
 import { useAuth } from '../hooks/useAuth'
@@ -16,8 +17,50 @@ import { createDefaultTenantConfig, withTenantDefaults } from '../utils/tenantDe
 import { registerTenantInGlobalList } from '../utils/tenantRegistry'
 import { newId } from '../utils/uuid'
 
-const TYPES = ['retail', 'restaurant', 'salon', 'pharmacy', 'grocery', 'custom']
 const LANGS = ['en', 'sw', 'fr', 'ar']
+const STEP_TITLES = [
+  'Create account',
+  'Business details',
+  'Billing',
+  'Verify email',
+  'Features',
+]
+const HEADER_STEPS = ['Create your', 'Business details', 'Billing', 'Verify email', 'Features']
+const INDUSTRY_OPTIONS = [
+  'Retail',
+  'Healthcare',
+  'Food & beverage',
+  'Pharmacy',
+  'Salon & beauty',
+  'Grocery',
+  'Laundry',
+  'Hospitality',
+  'Electronics',
+  'Fashion',
+  'Other',
+]
+const BUSINESS_SIZE_OPTIONS = [
+  '1-10 employees',
+  '11-50 employees',
+  '51-200 employees',
+  '201-500 employees',
+  '500+ employees',
+]
+const SUBDOMAIN_SUFFIX = '.your-domain.com'
+
+/** Dial codes for phone field (flag + code dropdown). */
+const PHONE_COUNTRIES = [
+  { iso: 'KE', flag: '🇰🇪', dial: '+254', label: 'Kenya' },
+  { iso: 'UG', flag: '🇺🇬', dial: '+256', label: 'Uganda' },
+  { iso: 'TZ', flag: '🇹🇿', dial: '+255', label: 'Tanzania' },
+  { iso: 'RW', flag: '🇷🇼', dial: '+250', label: 'Rwanda' },
+  { iso: 'ET', flag: '🇪🇹', dial: '+251', label: 'Ethiopia' },
+  { iso: 'ZA', flag: '🇿🇦', dial: '+27', label: 'South Africa' },
+  { iso: 'NG', flag: '🇳🇬', dial: '+234', label: 'Nigeria' },
+  { iso: 'GH', flag: '🇬🇭', dial: '+233', label: 'Ghana' },
+  { iso: 'US', flag: '🇺🇸', dial: '+1', label: 'United States' },
+  { iso: 'GB', flag: '🇬🇧', dial: '+44', label: 'United Kingdom' },
+]
 
 function modulesForBusinessType(type) {
   const base = { ...createDefaultTenantConfig('x').modules }
@@ -49,14 +92,22 @@ function modulesForBusinessType(type) {
       }
     case 'grocery':
       return { ...base, inventory: true, loyalty: true }
+    case 'laundry':
+      return { ...base, inventory: true, loyalty: true, appointments: true }
+    case 'liquor':
+      return { ...base, inventory: true, loyalty: true, multiRegister: true }
     default:
       return { ...base, inventory: true }
   }
 }
 
-function seedBusinessType(type) {
-  if (type === 'grocery' || type === 'custom') return 'retail'
-  return type
+function slugifyBusinessId(value) {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
 export default function Onboarding() {
@@ -68,22 +119,116 @@ export default function Onboarding() {
   const { reloadFromStorage: reloadCustomers } = useCustomers()
   const [step, setStep] = useState(0)
   const [slug, setSlug] = useState('')
+  const [slugTouched, setSlugTouched] = useState(false)
   const [businessName, setBusinessName] = useState('')
-  const [businessType, setBusinessType] = useState('retail')
-  const [timezone, setTimezone] = useState('Africa/Nairobi')
-  const [language, setLanguage] = useState('en')
-  const [logo, setLogo] = useState('')
-  const [primaryColor, setPrimaryColor] = useState('#2563eb')
-  const [currencyCode, setCurrencyCode] = useState('KES')
-  const [currencySymbol, setCurrencySymbol] = useState('KSh')
-  const [currencyPos, setCurrencyPos] = useState('before')
-  const [taxRate, setTaxRate] = useState(16)
-  const [taxLabel, setTaxLabel] = useState('VAT')
+  const [industry, setIndustry] = useState('')
+  const [businessSize, setBusinessSize] = useState('')
+  const [businessWebsite, setBusinessWebsite] = useState('')
+  const [timezone] = useState('Africa/Nairobi')
+  const [language] = useState('en')
+  const [logo] = useState('')
+  const [primaryColor] = useState('#2563eb')
+  const [currencyCode] = useState('KES')
+  const [currencySymbol] = useState('KSh')
+  const [currencyPos] = useState('before')
+  const [taxRate] = useState(16)
+  const [taxLabel] = useState('VAT')
   const [modules, setModules] = useState(() => modulesForBusinessType('retail'))
-  const [adminName, setAdminName] = useState('')
+  const [adminFirstName, setAdminFirstName] = useState('')
+  const [adminLastName, setAdminLastName] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
+  const [phoneCountryIso, setPhoneCountryIso] = useState('KE')
+  const [adminPhoneLocal, setAdminPhoneLocal] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
+  const [adminConfirmPassword, setAdminConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [agreeTerms, setAgreeTerms] = useState(false)
   const [includeSampleData, setIncludeSampleData] = useState(true)
+  const [billingPlan, setBillingPlan] = useState('monthly')
+  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', ''])
+  const [resendCountdown, setResendCountdown] = useState(26)
+  const totalSteps = STEP_TITLES.length
+  const passwordChecks = useMemo(
+    () => ({
+      minLen: adminPassword.length >= 8,
+      upper: /[A-Z]/.test(adminPassword),
+      lower: /[a-z]/.test(adminPassword),
+      number: /[0-9]/.test(adminPassword),
+    }),
+    [adminPassword],
+  )
+  const passwordScore = useMemo(() => {
+    let score = 0
+    if (passwordChecks.minLen) score += 1
+    if (passwordChecks.upper) score += 1
+    if (passwordChecks.lower) score += 1
+    if (passwordChecks.number) score += 1
+    if (adminPassword.length >= 12) score += 1
+    return score
+  }, [adminPassword.length, passwordChecks])
+  const passwordStrength = useMemo(() => {
+    if (!adminPassword) {
+      return { label: '', color: '', barClass: 'bg-gray-200 dark:bg-gray-700', width: '0%' }
+    }
+    if (passwordScore <= 2) {
+      return {
+        label: 'Weak',
+        color: 'text-red-600 dark:text-red-400',
+        barClass: 'bg-red-500',
+        width: '33%',
+      }
+    }
+    if (passwordScore <= 3) {
+      return {
+        label: 'Fair',
+        color: 'text-amber-600 dark:text-amber-400',
+        barClass: 'bg-amber-500',
+        width: '66%',
+      }
+    }
+    return {
+      label: 'Strong',
+      color: 'text-emerald-600 dark:text-emerald-400',
+      barClass: 'bg-emerald-500',
+      width: '100%',
+    }
+  }, [adminPassword, passwordScore])
+  const passwordStrong = Object.values(passwordChecks).every(Boolean)
+  const passwordsMatch =
+    adminConfirmPassword.length > 0 && adminPassword === adminConfirmPassword
+
+  const selectedPhoneCountry = useMemo(
+    () => PHONE_COUNTRIES.find((c) => c.iso === phoneCountryIso) ?? PHONE_COUNTRIES[0],
+    [phoneCountryIso],
+  )
+
+  const adminPhoneDigits = useMemo(
+    () => adminPhoneLocal.replace(/\D/g, ''),
+    [adminPhoneLocal],
+  )
+
+  const adminPhoneFull = useMemo(() => {
+    if (!adminPhoneDigits) return ''
+    return `${selectedPhoneCountry.dial} ${adminPhoneDigits}`
+  }, [adminPhoneDigits, selectedPhoneCountry.dial])
+  const verificationCodeValue = verificationCode.join('')
+  const maskedEmail = useMemo(() => {
+    const email = adminEmail.trim().toLowerCase()
+    if (!email || !email.includes('@')) return 'your-email@example.com'
+    const [name, domain] = email.split('@')
+    const visible = name.slice(0, 2)
+    return `${visible}${'*'.repeat(Math.max(4, name.length - 2))}@${domain}`
+  }, [adminEmail])
+
+  useEffect(() => {
+    if (step !== 3) return
+    if (resendCountdown <= 0) return
+    const timer = window.setInterval(() => {
+      setResendCountdown((value) => (value > 0 ? value - 1 : 0))
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [step, resendCountdown])
 
   /** Skip wizard only when already signed in with a configured workspace (steps 5–16 live in the app). */
   useEffect(() => {
@@ -96,14 +241,7 @@ export default function Onboarding() {
     () => /^[a-z0-9][a-z0-9-]{0,48}$/.test(slug.trim()) && slug.trim().length >= 2,
     [slug],
   )
-
-  const onLogo = useCallback((e) => {
-    const f = e.target.files?.[0]
-    if (!f) return
-    const r = new FileReader()
-    r.onload = () => setLogo(String(r.result ?? ''))
-    r.readAsDataURL(f)
-  }, [])
+  const hasBusinessIdentityInput = slug.trim().length > 0 || businessName.trim().length > 0
 
   const finish = useCallback(async () => {
     const tid = slug.trim().toLowerCase()
@@ -111,8 +249,21 @@ export default function Onboarding() {
       toast.error('Invalid workspace slug.')
       return
     }
-    if (!adminName.trim() || !adminEmail.trim() || adminPassword.length < 6) {
-      toast.error('Enter admin name, email, and password (6+ characters).')
+    const fullName = `${adminFirstName} ${adminLastName}`.trim()
+    if (!fullName || !adminEmail.trim() || adminPhoneDigits.length < 6) {
+      toast.error('Enter first name, last name, email, and a valid phone number.')
+      return
+    }
+    if (!passwordStrong) {
+      toast.error('Password must be 8+ chars with uppercase, lowercase, and number.')
+      return
+    }
+    if (!passwordsMatch) {
+      toast.error('Passwords do not match.')
+      return
+    }
+    if (!agreeTerms) {
+      toast.error('Please accept Terms of Service and Privacy Policy.')
       return
     }
     switchTenant(tid)
@@ -120,11 +271,19 @@ export default function Onboarding() {
     const config = {
       ...base,
       businessName: businessName.trim() || tid,
-      businessType,
+      businessType: 'retail',
+      businessTypeConfirmed: false,
+      industry,
+      businessSize,
+      website: businessWebsite.trim(),
       logo,
       primaryColor,
       timezone,
       language,
+      billing: {
+        ...base.billing,
+        planName: billingPlan === 'annual' ? 'Annual' : 'Monthly',
+      },
       currency: {
         code: currencyCode,
         symbol: currencySymbol,
@@ -144,8 +303,9 @@ export default function Onboarding() {
     const adminUser = {
       id: newId(),
       tenantId: tid,
-      name: adminName.trim(),
+      name: fullName,
       email: adminEmail.trim().toLowerCase(),
+      phone: adminPhoneFull.trim(),
       passwordHash: passHash,
       role: 'admin',
       pin: '',
@@ -167,7 +327,7 @@ export default function Onboarding() {
     )
     if (includeSampleData) {
       try {
-        await seedTenant(tid, seedBusinessType(businessType))
+        await seedTenant(tid, 'retail')
         reloadProducts()
         reloadOrders()
         reloadCustomers()
@@ -206,7 +366,9 @@ export default function Onboarding() {
     switchTenant,
     setTenantConfig,
     businessName,
-    businessType,
+    industry,
+    businessSize,
+    businessWebsite,
     logo,
     primaryColor,
     currencyCode,
@@ -215,175 +377,343 @@ export default function Onboarding() {
     taxRate,
     taxLabel,
     modules,
-    adminName,
+    adminFirstName,
+    adminLastName,
     adminEmail,
+    adminPhoneDigits,
+    adminPhoneFull,
     adminPassword,
+    passwordStrong,
+    passwordsMatch,
+    agreeTerms,
     login,
     navigate,
     timezone,
     language,
     includeSampleData,
+    billingPlan,
     reloadProducts,
     reloadOrders,
     reloadCustomers,
   ])
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-10 dark:bg-gray-950">
-      <div className="mx-auto max-w-lg rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-          Workspace setup
-        </h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Step {step + 1} of 5 — then use the app for catalogue (6–7), checkout (8–9), orders &
-          customers (10–11), reports & settings (12–13), tables / kitchen / appointments (14–16).
-        </p>
+    <main className="flex h-screen flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
+      <header className="border-b border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        <div className="mx-auto grid w-full max-w-6xl grid-cols-[auto_1fr_auto] items-center gap-4 px-4 py-2 sm:px-6">
+          <div className="flex items-center gap-1.5">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--brand)]/15 text-[9px] font-bold text-[var(--brand)]">
+              SP
+            </div>
+            <p className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">SanPOS</p>
+          </div>
 
-        {step === 0 ? (
-          <div className="mt-6 space-y-4">
-            <Input
-              id="slug"
-              label="Workspace slug"
-              value={slug}
-              onChange={(e) => setSlug(e.target.value.toLowerCase())}
-              placeholder="acme"
-              aria-label="Workspace slug"
-            />
+          <div className="hidden items-center justify-center gap-2 md:flex">
+            {HEADER_STEPS.map((title, idx) => {
+              const active = idx === step
+              const completed = idx < step
+              return (
+                <div key={title} className="flex items-center gap-1.5">
+                  <div
+                    className={`flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-semibold ${
+                      active
+                        ? 'bg-[#2690ff] text-white'
+                        : completed
+                          ? 'bg-[#d9ecff] text-[#2690ff]'
+                          : 'bg-[#eaf4ff] text-[#8fb8de]'
+                    }`}
+                  >
+                    {idx + 1}
+                  </div>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">{title}</span>
+                </div>
+              )
+            })}
+          </div>
+
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Already have an account?{' '}
+            <Link to="/login" className="font-semibold text-[#1d4ed8] hover:underline">
+              Log in
+            </Link>
+          </p>
+        </div>
+      </header>
+
+      <div className="mx-auto w-full max-w-4xl flex-1 overflow-hidden px-4 pb-1.5 pt-2 sm:px-6">
+        <div className="mx-auto flex h-full w-full max-w-xl flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-800 dark:bg-gray-900 sm:p-4">
+          <div className="flex-1 overflow-y-auto pr-1">
+          {step === 1 ? (
+            <div className="space-y-2.5">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-1.5 dark:border-gray-700 dark:bg-gray-800/70">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Business Details</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Help us personalize your POS experience
+              </p>
+            </div>
+            <div>
+              <Input
+                id="slug"
+                label="Business ID (Short Name)"
+                value={slug}
+                onChange={(e) => {
+                  setSlugTouched(true)
+                  setSlug(slugifyBusinessId(e.target.value))
+                }}
+                placeholder="e.g. acme-shop"
+                aria-label="Business ID (Short Name)"
+                className="py-2 text-sm"
+                labelClassName="mb-1 text-xs"
+              />
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Used to uniquely identify your business. Use lowercase letters, numbers, and
+                hyphens only.
+              </p>
+            </div>
             <Input
               id="bn"
               label="Business name"
               value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
+              onChange={(e) => {
+                const nextName = e.target.value
+                setBusinessName(nextName)
+                if (!slugTouched) {
+                  setSlug(slugifyBusinessId(nextName))
+                }
+              }}
               aria-label="Business name"
+              className="py-2 text-sm"
+              labelClassName="mb-1 text-xs"
             />
-            <div>
-              <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                Business type
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {TYPES.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => {
-                      setBusinessType(t)
-                      setModules(modulesForBusinessType(t))
+            {hasBusinessIdentityInput ? (
+              <div className="w-full">
+                <label
+                  htmlFor="subdomain-preview"
+                  className="mb-1 block text-xs font-medium text-gray-700 dark:text-gray-300"
+                >
+                  Subdomain
+                </label>
+                <div className="flex overflow-hidden rounded-xl border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-800">
+                  <input
+                    id="subdomain-preview"
+                    type="text"
+                    value={slug}
+                    onChange={(e) => {
+                      setSlugTouched(true)
+                      setSlug(slugifyBusinessId(e.target.value))
                     }}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${
-                      businessType === t
-                        ? 'bg-[var(--brand)] text-white'
-                        : 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200'
-                    }`}
-                    aria-label={`Type ${t}`}
-                  >
-                    {t}
-                  </button>
-                ))}
+                    className="min-w-0 flex-1 border-0 px-3 py-2 text-sm text-[var(--brand)] outline-none ring-0 focus:ring-0 dark:bg-gray-800"
+                    aria-label="Subdomain prefix"
+                    placeholder="your-business"
+                  />
+                  <span className="shrink-0 border-l border-gray-300 px-3 py-2 text-sm text-gray-500 dark:border-gray-600 dark:text-gray-400">
+                    {SUBDOMAIN_SUFFIX}
+                  </span>
+                </div>
               </div>
-            </div>
-            <Input
-              id="tz"
-              label="Timezone"
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value)}
-              aria-label="Timezone"
-            />
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Language
+            ) : null}
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Industry
               <select
-                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                aria-label="Language"
+                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                aria-label="Industry"
               >
-                {LANGS.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
+                <option value="">Select an option</option>
+                {INDUSTRY_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
                   </option>
                 ))}
               </select>
             </label>
-          </div>
-        ) : null}
-
-        {step === 1 ? (
-          <div className="mt-6 space-y-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Logo
-              <input
-                type="file"
-                accept="image/*"
-                className="mt-1 block w-full text-sm"
-                onChange={onLogo}
-                aria-label="Upload logo"
-              />
-            </label>
-            {logo ? (
-              <img src={logo} alt="" className="h-16 w-16 rounded-lg object-cover" />
-            ) : null}
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Primary color
-              <input
-                type="color"
-                className="mt-1 h-10 w-full max-w-[120px] cursor-pointer rounded border-0"
-                value={primaryColor}
-                onChange={(e) => setPrimaryColor(e.target.value)}
-                aria-label="Primary color"
-              />
-            </label>
-          </div>
-        ) : null}
-
-        {step === 2 ? (
-          <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                id="cur"
-                label="Currency code"
-                value={currencyCode}
-                onChange={(e) => setCurrencyCode(e.target.value.toUpperCase())}
-                aria-label="Currency code"
-              />
-              <Input
-                id="sym"
-                label="Symbol"
-                value={currencySymbol}
-                onChange={(e) => setCurrencySymbol(e.target.value)}
-                aria-label="Currency symbol"
-              />
-            </div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Symbol position
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+              Business size
               <select
-                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
-                value={currencyPos}
-                onChange={(e) => setCurrencyPos(e.target.value)}
-                aria-label="Currency position"
+                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+                value={businessSize}
+                onChange={(e) => setBusinessSize(e.target.value)}
+                aria-label="Business size"
               >
-                <option value="before">Before amount</option>
-                <option value="after">After amount</option>
+                <option value="">Select an option</option>
+                {BUSINESS_SIZE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
               </select>
             </label>
             <Input
-              id="tr"
-              label="Tax rate %"
-              type="number"
-              value={taxRate}
-              onChange={(e) => setTaxRate(e.target.value)}
-              aria-label="Tax rate percent"
+              id="bw"
+              label="Business website (optional)"
+              type="url"
+              value={businessWebsite}
+              onChange={(e) => setBusinessWebsite(e.target.value)}
+              placeholder="https://www.mybusiness.com"
+              aria-label="Business website"
+              className="py-2 text-sm"
+              labelClassName="mb-1 text-xs"
             />
-            <Input
-              id="tl"
-              label="Tax label"
-              value={taxLabel}
-              onChange={(e) => setTaxLabel(e.target.value)}
-              aria-label="Tax label"
-            />
-          </div>
-        ) : null}
+            </div>
+          ) : null}
 
-        {step === 3 ? (
-          <div className="mt-6 space-y-3">
+          {step === 3 ? (
+            <div className="space-y-2.5">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/70">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Verify Email</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Confirm your email address</p>
+            </div>
+
+            <div className="flex flex-col items-center rounded-xl border border-gray-200 px-3 py-4 text-center dark:border-gray-700">
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 text-[var(--brand)] dark:bg-blue-950/30">
+                <Mail size={20} />
+              </div>
+              <h4 className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Verify your email</h4>
+              <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">
+                Enter the 6-digit code sent to
+              </p>
+              <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                <Lock size={14} />
+                {maskedEmail}
+              </p>
+
+              <div className="mt-4 flex gap-1.5">
+                {verificationCode.map((digit, idx) => (
+                  <input
+                    key={`otp-${idx}`}
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(-1)
+                      setVerificationCode((prev) => {
+                        const next = [...prev]
+                        next[idx] = value
+                        return next
+                      })
+                    }}
+                    className="h-10 w-10 rounded-lg border border-gray-300 text-center text-lg font-semibold outline-none focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/30 dark:border-gray-600 dark:bg-gray-900"
+                    aria-label={`Verification code digit ${idx + 1}`}
+                  />
+                ))}
+              </div>
+
+              <Button
+                type="button"
+                className="mt-4 w-full max-w-md"
+                disabled={verificationCodeValue.length !== 6}
+                onClick={() => setStep(4)}
+              >
+                Verify & Continue
+              </Button>
+              <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                Didn&apos;t get the code?{' '}
+                {resendCountdown > 0 ? (
+                  <span className="font-semibold">Resend in {resendCountdown}s</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setResendCountdown(26)}
+                    className="font-semibold text-[var(--brand)]"
+                  >
+                    Resend code
+                  </button>
+                )}
+              </p>
+            </div>
+            </div>
+          ) : null}
+
+          {step === 2 ? (
+            <div className="space-y-2.5">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/70">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Select Your Plan</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Choose the billing cycle that fits your business
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-2.5 py-1.5 dark:border-blue-900/60 dark:bg-blue-950/20">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                <span className="font-semibold text-[var(--brand)]">14-day free trial</span> - No credit card required. Full access to all features.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setBillingPlan('monthly')}
+              className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                billingPlan === 'monthly'
+                  ? 'border-[var(--brand)] bg-blue-50/70 ring-1 ring-[var(--brand)]/40 dark:bg-blue-950/20'
+                  : 'border-gray-300 bg-white hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-1 flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+                      billingPlan === 'monthly'
+                        ? 'bg-[var(--brand)] text-white'
+                        : 'border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900'
+                    }`}
+                  >
+                    {billingPlan === 'monthly' ? '✓' : ''}
+                  </span>
+                  <div>
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">Monthly</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Pay month-to-month, cancel anytime</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">KES 1,500 <span className="text-base font-normal text-gray-500">/user/mo</span></p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">VAT incl.</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBillingPlan('annual')}
+              className={`w-full rounded-2xl border px-3 py-3 text-left transition ${
+                billingPlan === 'annual'
+                  ? 'border-[var(--brand)] bg-blue-50/70 ring-1 ring-[var(--brand)]/40 dark:bg-blue-950/20'
+                  : 'border-gray-300 bg-white hover:border-gray-400 dark:border-gray-700 dark:bg-gray-900'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <span
+                    className={`mt-1 flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+                      billingPlan === 'annual'
+                        ? 'bg-[var(--brand)] text-white'
+                        : 'border border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-900'
+                    }`}
+                  >
+                    {billingPlan === 'annual' ? '✓' : ''}
+                  </span>
+                  <div>
+                    <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
+                      Annual <span className="ml-1 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-[var(--brand)]">Save 16.67%</span>
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Billed annually, best value</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">KES 14,999 <span className="text-base font-normal text-gray-500">/user/yr</span></p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">VAT incl.</p>
+                </div>
+              </div>
+            </button>
+
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              All prices include {taxRate}% {taxLabel}. Billing starts after your 14-day trial ends.
+            </p>
+            </div>
+          ) : null}
+
+          {step === 4 ? (
+            <div className="space-y-2">
             {Object.entries(modules).map(([key, on]) => (
               <div
                 key={key}
@@ -402,35 +732,7 @@ export default function Onboarding() {
                 </Switch.Root>
               </div>
             ))}
-          </div>
-        ) : null}
-
-        {step === 4 ? (
-          <div className="mt-6 space-y-4">
-            <Input
-              id="an"
-              label="Admin full name"
-              value={adminName}
-              onChange={(e) => setAdminName(e.target.value)}
-              aria-label="Admin name"
-            />
-            <Input
-              id="ae"
-              label="Admin email"
-              type="email"
-              value={adminEmail}
-              onChange={(e) => setAdminEmail(e.target.value)}
-              aria-label="Admin email"
-            />
-            <Input
-              id="ap"
-              label="Password"
-              type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              aria-label="Admin password"
-            />
-            <div className="flex items-center justify-between rounded-xl border border-gray-200 px-3 py-3 dark:border-gray-700">
+            <div className="mt-1.5 flex items-center justify-between rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
               <div>
                 <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
                   Include sample catalogue &amp; orders
@@ -449,38 +751,277 @@ export default function Onboarding() {
                 <Switch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white transition data-[state=checked]:translate-x-5" />
               </Switch.Root>
             </div>
-          </div>
-        ) : null}
+            </div>
+          ) : null}
 
-        <div className="mt-8 flex justify-between gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={step === 0}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            aria-label="Previous step"
+          {step === 0 ? (
+            <div className="space-y-3">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Create Your Account</h2>
+              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                Enter your details to get started with SanPOS
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input
+                id="afn"
+                label="First Name *"
+                value={adminFirstName}
+                onChange={(e) => setAdminFirstName(e.target.value)}
+                aria-label="First name"
+                placeholder="John"
+              />
+              <Input
+                id="aln"
+                label="Last Name *"
+                value={adminLastName}
+                onChange={(e) => setAdminLastName(e.target.value)}
+                aria-label="Last name"
+                placeholder="Doe"
+              />
+            </div>
+            <Input
+              id="ae"
+              label="Email Address *"
+              type="email"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              aria-label="Admin email"
+            />
+            <div className="w-full">
+              <label
+                htmlFor="aph-local"
+                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Phone Number *
+              </label>
+              <div className="flex overflow-hidden rounded-xl border border-gray-300 bg-white shadow-sm dark:border-gray-600 dark:bg-gray-900">
+                <div className="relative w-[6.75rem] shrink-0 border-r border-gray-300 bg-gray-50/80 dark:border-gray-600 dark:bg-gray-800/50 sm:w-[7rem]">
+                  <select
+                    id="aph-country"
+                    value={phoneCountryIso}
+                    onChange={(e) => setPhoneCountryIso(e.target.value)}
+                    className="h-[42px] w-full cursor-pointer appearance-none bg-transparent py-2 pl-2 pr-7 text-xs font-semibold tabular-nums text-gray-900 outline-none dark:text-gray-100"
+                    aria-label="Country calling code"
+                  >
+                    {PHONE_COUNTRIES.map((c) => (
+                      <option key={c.iso} value={c.iso}>
+                        {c.flag} {c.dial}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] leading-none text-gray-500 dark:text-gray-400">
+                    ▼
+                  </span>
+                </div>
+                <input
+                  id="aph-local"
+                  type="tel"
+                  inputMode="numeric"
+                  autoComplete="tel-national"
+                  value={adminPhoneLocal}
+                  onChange={(e) => setAdminPhoneLocal(e.target.value)}
+                  placeholder="114080686"
+                  className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2.5 text-gray-900 outline-none ring-0 placeholder:text-gray-400 focus:ring-0 dark:text-gray-100"
+                  aria-label="Phone number"
+                />
+              </div>
+            </div>
+            <div className="w-full">
+              <label
+                htmlFor="ap"
+                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Password *
+              </label>
+              <div className="relative">
+                <input
+                  id="ap"
+                  type={showPassword ? 'text' : 'password'}
+                  value={adminPassword}
+                  onChange={(e) => setAdminPassword(e.target.value)}
+                  aria-label="Admin password"
+                  className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 pr-11 text-gray-900 shadow-sm outline-none transition focus:border-transparent focus:ring-2 focus:ring-[var(--brand)] disabled:bg-gray-50 disabled:text-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+            {adminPassword ? (
+              <div className="space-y-2">
+                {!passwordChecks.minLen ? (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    Password must be at least 8 characters long
+                  </p>
+                ) : null}
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 dark:text-gray-400">Password strength</span>
+                  <span className={`font-semibold ${passwordStrength.color}`}>
+                    {passwordStrength.label}
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className={`h-full transition-all duration-300 ${passwordStrength.barClass}`}
+                    style={{ width: passwordStrength.width }}
+                  />
+                </div>
+                <div className="grid gap-1 text-xs sm:grid-cols-2">
+                  <p className={passwordChecks.minLen ? 'text-emerald-600' : 'text-amber-600'}>
+                    {passwordChecks.minLen ? '✓' : '•'} At least 8 characters
+                  </p>
+                  <p className={passwordChecks.upper ? 'text-emerald-600' : 'text-amber-600'}>
+                    {passwordChecks.upper ? '✓' : '•'} One uppercase letter
+                  </p>
+                  <p className={passwordChecks.lower ? 'text-emerald-600' : 'text-amber-600'}>
+                    {passwordChecks.lower ? '✓' : '•'} One lowercase letter
+                  </p>
+                  <p className={passwordChecks.number ? 'text-emerald-600' : 'text-amber-600'}>
+                    {passwordChecks.number ? '✓' : '•'} One number
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            <div className="w-full">
+              <label
+                htmlFor="acp"
+                className="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
+                Confirm Password *
+              </label>
+              <div className="relative">
+                <input
+                  id="acp"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={adminConfirmPassword}
+                  onChange={(e) => setAdminConfirmPassword(e.target.value)}
+                  aria-label="Confirm password"
+                  className={`w-full rounded-xl border bg-white px-4 py-2.5 pr-11 text-gray-900 shadow-sm outline-none transition focus:border-transparent focus:ring-2 disabled:bg-gray-50 disabled:text-gray-500 dark:bg-gray-900 dark:text-gray-100 ${
+                    adminConfirmPassword && !passwordsMatch
+                      ? 'border-red-400 focus:ring-red-500 dark:border-red-500'
+                      : 'border-gray-300 focus:ring-[var(--brand)] dark:border-gray-600'
+                  }`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                >
+                  {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </div>
+            </div>
+            {adminConfirmPassword && !passwordsMatch ? (
+              <p className="text-sm font-medium text-rose-600 dark:text-rose-400">
+                Passwords do not match
+              </p>
+            ) : null}
+            <div className="flex items-start gap-1.5">
+              <input
+                id="terms"
+                type="checkbox"
+                checked={agreeTerms}
+                onChange={(e) => setAgreeTerms(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-[var(--brand)] focus:ring-[var(--brand)]"
+                aria-label="Agree to terms"
+              />
+              <label htmlFor="terms" className="text-xs leading-snug text-gray-600 dark:text-gray-300">
+                I agree to the <span className="font-medium text-[var(--brand)]">Terms of Service</span> and{' '}
+                <span className="font-medium text-[var(--brand)]">Privacy Policy</span> *
+              </label>
+            </div>
+            </div>
+          ) : null}
+          </div>
+          <div
+            className={`mt-2 flex shrink-0 gap-2 border-t border-gray-200 pt-2 dark:border-gray-700 ${
+              step >= 2 ? 'justify-between' : 'justify-end'
+            }`}
           >
-            Back
-          </Button>
-          {step < 4 ? (
-            <Button
-              type="button"
-              onClick={() => {
-                if (step === 0 && !slugOk) {
-                  toast.error('Enter a valid slug.')
-                  return
+            {step >= 2 ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setStep((s) => Math.max(0, s - 1))}
+                aria-label="Previous step"
+              >
+                Back
+              </Button>
+            ) : null}
+            {step < 4 ? (
+              <Button
+                type="button"
+                disabled={step === 0 && !agreeTerms}
+                onClick={() => {
+                  if (step === 0) {
+                    const fullName = `${adminFirstName} ${adminLastName}`.trim()
+                    if (!fullName || !adminEmail.trim() || adminPhoneDigits.length < 6) {
+                      toast.error('Enter first name, last name, email, and a valid phone number.')
+                      return
+                    }
+                    if (!passwordStrong) {
+                      toast.error(
+                        'Password must be 8+ chars with uppercase, lowercase, and number.',
+                      )
+                      return
+                    }
+                    if (!passwordsMatch) {
+                      toast.error('Passwords do not match.')
+                      return
+                    }
+                    if (!agreeTerms) {
+                      toast.error('Please accept Terms of Service and Privacy Policy.')
+                      return
+                    }
+                  }
+                  if (step === 1 && !slugOk) {
+                    toast.error('Enter a valid slug.')
+                    return
+                  }
+                  if (step === 3 && verificationCodeValue.length !== 6) {
+                    toast.error('Enter the 6-digit verification code.')
+                    return
+                  }
+                  setStep((s) => s + 1)
+                }}
+                aria-label={
+                  step === 0
+                    ? 'Continue to business details'
+                    : step >= 2
+                      ? 'Submit and continue'
+                      : 'Next step'
                 }
-                setStep((s) => s + 1)
-              }}
-              aria-label="Next step"
-            >
-              Next
-            </Button>
-          ) : (
-            <Button type="button" onClick={finish} aria-label="Complete setup">
-              Finish
-            </Button>
-          )}
+              >
+                {step === 0 ? 'Continue' : step >= 2 ? 'Submit' : 'Next'}
+              </Button>
+            ) : (
+              <Button type="button" onClick={finish} aria-label="Complete setup">
+                Finish
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-auto w-full max-w-4xl px-4 pb-2 sm:px-6">
+        <div className="mx-auto w-full max-w-xl">
+          <div className="grid grid-cols-5 gap-1.5">
+            {Array.from({ length: totalSteps }).map((_, idx) => (
+              <div
+                key={`progress-${idx}`}
+                className={`h-1.5 rounded-full transition ${
+                  idx <= step ? 'bg-[var(--brand)]' : 'bg-gray-200 dark:bg-gray-800'
+                }`}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </main>
