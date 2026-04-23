@@ -1,21 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import * as Switch from '@radix-ui/react-switch'
 import { Eye, EyeOff, Lock, Mail } from 'lucide-react'
 import { Button } from '../components/shared/Button'
 import { Input } from '../components/shared/Input'
 import { useAuth } from '../hooks/useAuth'
 import { useTenant } from '../hooks/useTenant'
-import { useProducts } from '../hooks/useProducts'
-import { useOrders } from '../hooks/useOrders'
-import { useCustomers } from '../hooks/useCustomers'
-import { hashPassword } from '../utils/password'
-import { getJSON, setJSON } from '../utils/storage'
-import { seedTenant } from '../utils/seedTenant'
 import { createDefaultTenantConfig, withTenantDefaults } from '../utils/tenantDefaults'
 import { registerTenantInGlobalList } from '../utils/tenantRegistry'
-import { newId } from '../utils/uuid'
+import { apiRequest } from '../utils/api'
 
 const LANGS = ['en', 'sw', 'fr', 'ar']
 const STEP_TITLES = [
@@ -23,9 +16,16 @@ const STEP_TITLES = [
   'Business details',
   'Billing',
   'Verify email',
-  'Features',
+  'Setting up',
 ]
-const HEADER_STEPS = ['Create your', 'Business details', 'Billing', 'Verify email', 'Features']
+const HEADER_STEPS = ['Create your', 'Business details', 'Billing', 'Verify email', 'Setting up']
+const SETUP_STATUS_LINES = [
+  'Your workspace will have its own secure environment with dedicated resources...',
+  'Setting up your own dedicated database to keep your data completely isolated...',
+  'Almost there! Finalizing your workspace configuration...',
+  "This takes a little while because we ensure your data never mixes with anyone else's...",
+  "We're creating a private workspace just for you...",
+]
 const INDUSTRY_OPTIONS = [
   'Retail',
   'Healthcare',
@@ -114,9 +114,6 @@ export default function Onboarding() {
   const navigate = useNavigate()
   const { tenantId, tenantConfig, switchTenant, setTenantConfig } = useTenant()
   const { login, isAuthenticated } = useAuth()
-  const { reloadFromStorage: reloadProducts } = useProducts()
-  const { reloadFromStorage: reloadOrders } = useOrders()
-  const { reloadFromStorage: reloadCustomers } = useCustomers()
   const [step, setStep] = useState(0)
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
@@ -133,7 +130,7 @@ export default function Onboarding() {
   const [currencyPos] = useState('before')
   const [taxRate] = useState(16)
   const [taxLabel] = useState('VAT')
-  const [modules, setModules] = useState(() => modulesForBusinessType('retail'))
+  const [modules] = useState(() => modulesForBusinessType('retail'))
   const [adminFirstName, setAdminFirstName] = useState('')
   const [adminLastName, setAdminLastName] = useState('')
   const [adminEmail, setAdminEmail] = useState('')
@@ -144,10 +141,18 @@ export default function Onboarding() {
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [agreeTerms, setAgreeTerms] = useState(false)
-  const [includeSampleData, setIncludeSampleData] = useState(true)
+  const [includeSampleData] = useState(true)
   const [billingPlan, setBillingPlan] = useState('monthly')
   const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', ''])
   const [resendCountdown, setResendCountdown] = useState(26)
+  const [setupMessageIndex, setSetupMessageIndex] = useState(0)
+  const [setupProgress, setSetupProgress] = useState(50)
+  const [draftId, setDraftId] = useState('')
+  const [isFinalizing, setIsFinalizing] = useState(false)
+  const [isStepSubmitting, setIsStepSubmitting] = useState(false)
+  const setupAutoSubmittedRef = useRef(false)
+  const setupFinishTimeoutRef = useRef(null)
+  const finishRef = useRef(null)
   const totalSteps = STEP_TITLES.length
   const passwordChecks = useMemo(
     () => ({
@@ -220,6 +225,43 @@ export default function Onboarding() {
     const visible = name.slice(0, 2)
     return `${visible}${'*'.repeat(Math.max(4, name.length - 2))}@${domain}`
   }, [adminEmail])
+  const currentSetupLine = SETUP_STATUS_LINES[setupMessageIndex] ?? SETUP_STATUS_LINES[0]
+
+  const ensureDraftId = useCallback(async () => {
+    if (draftId) return draftId
+
+    const draft = await apiRequest('/api/onboarding/draft', {
+      method: 'POST',
+      body: {
+        adminFirstName,
+        adminLastName,
+        adminEmail,
+        phoneCountryIso,
+        adminPhoneLocal: adminPhoneDigits,
+        adminPhoneFull: adminPhoneFull.trim(),
+        adminPassword,
+        passwordScore,
+        agreeTerms,
+      },
+    })
+    const createdId = draft?.draft?.id
+    if (!createdId) {
+      throw new Error('Failed to create onboarding draft.')
+    }
+    setDraftId(createdId)
+    return createdId
+  }, [
+    draftId,
+    adminFirstName,
+    adminLastName,
+    adminEmail,
+    phoneCountryIso,
+    adminPhoneDigits,
+    adminPhoneFull,
+    adminPassword,
+    passwordScore,
+    agreeTerms,
+  ])
 
   useEffect(() => {
     if (step !== 3) return
@@ -230,10 +272,46 @@ export default function Onboarding() {
     return () => window.clearInterval(timer)
   }, [step, resendCountdown])
 
+  useEffect(() => {
+    if (step !== 4) return
+    const lineTimer = window.setInterval(() => {
+      setSetupMessageIndex((index) => (index + 1) % SETUP_STATUS_LINES.length)
+    }, 2400)
+    const progressTimer = window.setInterval(() => {
+      setSetupProgress((value) => (value < 100 ? Math.min(100, value + 2) : 100))
+    }, 220)
+    return () => {
+      window.clearInterval(lineTimer)
+      window.clearInterval(progressTimer)
+    }
+  }, [step])
+
+  useEffect(() => {
+    if (step !== 4) return
+    if (setupProgress < 100) return
+    if (setupAutoSubmittedRef.current) return
+    setupAutoSubmittedRef.current = true
+    setupFinishTimeoutRef.current = window.setTimeout(() => {
+      finishRef.current?.()
+    }, 500)
+  }, [step, setupProgress])
+
+  useEffect(
+    () => () => {
+      if (setupFinishTimeoutRef.current) {
+        window.clearTimeout(setupFinishTimeoutRef.current)
+      }
+    },
+    [],
+  )
+
   /** Skip wizard only when already signed in with a configured workspace (steps 5–16 live in the app). */
   useEffect(() => {
     if (isAuthenticated && tenantId && tenantConfig) {
-      navigate('/pos', { replace: true })
+      navigate(
+        tenantConfig.businessTypeConfirmed === false ? '/business-type' : '/pos',
+        { replace: true },
+      )
     }
   }, [isAuthenticated, tenantId, tenantConfig, navigate])
 
@@ -244,26 +322,32 @@ export default function Onboarding() {
   const hasBusinessIdentityInput = slug.trim().length > 0 || businessName.trim().length > 0
 
   const finish = useCallback(async () => {
+    setIsFinalizing(true)
     const tid = slug.trim().toLowerCase()
     if (!slugOk) {
       toast.error('Invalid workspace slug.')
+      setIsFinalizing(false)
       return
     }
     const fullName = `${adminFirstName} ${adminLastName}`.trim()
     if (!fullName || !adminEmail.trim() || adminPhoneDigits.length < 6) {
       toast.error('Enter first name, last name, email, and a valid phone number.')
+      setIsFinalizing(false)
       return
     }
     if (!passwordStrong) {
       toast.error('Password must be 8+ chars with uppercase, lowercase, and number.')
+      setIsFinalizing(false)
       return
     }
     if (!passwordsMatch) {
       toast.error('Passwords do not match.')
+      setIsFinalizing(false)
       return
     }
     if (!agreeTerms) {
       toast.error('Please accept Terms of Service and Privacy Policy.')
+      setIsFinalizing(false)
       return
     }
     switchTenant(tid)
@@ -292,74 +376,66 @@ export default function Onboarding() {
       taxRate: Number(taxRate) || 0,
       taxLabel: taxLabel.trim() || 'Tax',
       modules: { ...base.modules, ...modules },
+      includeSampleData,
+      workspaceInitialized: false,
     }
     const normalized = withTenantDefaults(config, tid)
+
+    let activeDraftId = draftId
+    if (!activeDraftId) {
+      try {
+        activeDraftId = await ensureDraftId()
+      } catch (error) {
+        toast.error(error.message || 'Onboarding draft is missing. Please restart onboarding.')
+        setIsFinalizing(false)
+        return
+      }
+    }
+    let backendSession = null
+    try {
+      const completion = await apiRequest(`/api/onboarding/draft/${activeDraftId}/complete`, {
+        method: 'POST',
+        body: {
+          includeSampleData,
+          businessType: 'retail',
+          businessTypeConfirmed: false,
+          workspaceInitialized: false,
+          modules: normalized.modules,
+        },
+      })
+      backendSession = completion
+    } catch (error) {
+      toast.error(error.message || 'Failed to finalize onboarding on backend.')
+      setupAutoSubmittedRef.current = false
+      setIsFinalizing(false)
+      return
+    }
+
     setTenantConfig(normalized)
     registerTenantInGlobalList({
       tenantId: tid,
       businessName: normalized.businessName,
     })
-    const passHash = await hashPassword(adminPassword)
-    const adminUser = {
-      id: newId(),
-      tenantId: tid,
-      name: fullName,
-      email: adminEmail.trim().toLowerCase(),
-      phone: adminPhoneFull.trim(),
-      passwordHash: passHash,
-      role: 'admin',
-      pin: '',
-      active: true,
-      lastLogin: null,
-      registerId: null,
+
+    if (!backendSession?.user) {
+      toast.error('Backend onboarding completed without session data. Please sign in manually.')
+      navigate('/login', { replace: true })
+      setIsFinalizing(false)
+      return
     }
-    const users = getJSON(tid, 'users', [])
-    users.push(adminUser)
-    setJSON(tid, 'users', users)
     login(
       {
-        id: adminUser.id,
-        name: adminUser.name,
-        email: adminUser.email,
-        role: adminUser.role,
+        id: backendSession.user.id,
+        name: backendSession.user.name,
+        email: backendSession.user.email,
+        role: backendSession.user.role,
       },
       tid,
+      backendSession.token || null,
     )
-    if (includeSampleData) {
-      try {
-        await seedTenant(tid, 'retail')
-        reloadProducts()
-        reloadOrders()
-        reloadCustomers()
-      } catch {
-        toast.error(
-          'Workspace saved but sample data failed to load. Add products under Products.',
-        )
-      }
-    } else {
-      const regId = newId()
-      setJSON(tid, 'registers', [
-        {
-          id: regId,
-          tenantId: tid,
-          name: 'Register 1',
-          openingFloat: 0,
-          currentFloat: 0,
-          status: 'open',
-          cashierId: null,
-        },
-      ])
-      setJSON(tid, 'activeRegisterId', regId)
-      setJSON(tid, 'categories', [])
-      setJSON(tid, 'products', [])
-      setJSON(tid, 'orders', [])
-      setJSON(tid, 'customers', [])
-      reloadProducts()
-      reloadOrders()
-      reloadCustomers()
-    }
-    toast.success('Workspace ready — explore POS, products, orders, and reports.')
-    navigate('/pos', { replace: true })
+    toast.success('Account ready. Complete business setup to continue.')
+    navigate('/business-type', { replace: true })
+    setIsFinalizing(false)
   }, [
     slug,
     slugOk,
@@ -392,10 +468,53 @@ export default function Onboarding() {
     language,
     includeSampleData,
     billingPlan,
-    reloadProducts,
-    reloadOrders,
-    reloadCustomers,
+    draftId,
+    isFinalizing,
+    ensureDraftId,
   ])
+
+  const verifyEmailAndContinue = useCallback(async () => {
+    if (isStepSubmitting) return
+    setIsStepSubmitting(true)
+    try {
+    if (verificationCodeValue.length !== 6) {
+      toast.error('Enter the 6-digit verification code.')
+      return
+    }
+    let activeDraftId = draftId
+    if (!activeDraftId) {
+      try {
+        activeDraftId = await ensureDraftId()
+      } catch (error) {
+        toast.error(error.message || 'Onboarding draft missing. Please restart onboarding.')
+        return
+      }
+    }
+    try {
+      await apiRequest(`/api/onboarding/draft/${activeDraftId}/verify-otp`, {
+        method: 'POST',
+        body: { verificationCode: verificationCodeValue },
+      })
+    } catch (error) {
+      toast.error(error.message || 'Verification code is invalid or expired.')
+      return
+    }
+    setSetupProgress(50)
+    setSetupMessageIndex(0)
+    setupAutoSubmittedRef.current = false
+    if (setupFinishTimeoutRef.current) {
+      window.clearTimeout(setupFinishTimeoutRef.current)
+      setupFinishTimeoutRef.current = null
+    }
+    setStep(4)
+    } finally {
+      setIsStepSubmitting(false)
+    }
+  }, [draftId, verificationCodeValue, ensureDraftId, isStepSubmitting])
+
+  useEffect(() => {
+    finishRef.current = finish
+  }, [finish])
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
@@ -602,10 +721,10 @@ export default function Onboarding() {
               <Button
                 type="button"
                 className="mt-4 w-full max-w-md"
-                disabled={verificationCodeValue.length !== 6}
-                onClick={() => setStep(4)}
+                disabled={isStepSubmitting}
+                onClick={verifyEmailAndContinue}
               >
-                Verify & Continue
+                {isStepSubmitting ? 'Verifying...' : 'Verify & Continue'}
               </Button>
               <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
                 Didn&apos;t get the code?{' '}
@@ -713,43 +832,55 @@ export default function Onboarding() {
           ) : null}
 
           {step === 4 ? (
-            <div className="space-y-2">
-            {Object.entries(modules).map(([key, on]) => (
-              <div
-                key={key}
-                className="flex items-center justify-between rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700"
-              >
-                <span className="text-sm capitalize text-gray-800 dark:text-gray-200">
-                  {key.replace(/([A-Z])/g, ' $1')}
-                </span>
-                <Switch.Root
-                  checked={on}
-                  onCheckedChange={(v) => setModules((m) => ({ ...m, [key]: v }))}
-                  className="h-6 w-11 rounded-full bg-gray-200 data-[state=checked]:bg-[var(--brand)] dark:bg-gray-700"
-                  aria-label={`Toggle ${key}`}
-                >
-                  <Switch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white transition data-[state=checked]:translate-x-5" />
-                </Switch.Root>
+            <div className="space-y-2.5">
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/70">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Setting up your workspace...
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                This may take a moment, kindly be patient
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+              <div className="flex items-center justify-between text-sm font-semibold text-gray-700 dark:text-gray-300">
+                <span>Provisioning secure resources</span>
+                <span className="text-[var(--brand)]">{setupProgress}%</span>
               </div>
-            ))}
-            <div className="mt-1.5 flex items-center justify-between rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
-              <div>
-                <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                  Include sample catalogue &amp; orders
-                </p>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  Recommended: categories, products, registers, sample orders &amp; customers so POS
-                  and reports work immediately.
+              <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-800">
+                <div
+                  className="h-full rounded-full bg-[var(--brand)] transition-all duration-500"
+                  style={{ width: `${setupProgress}%` }}
+                />
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 dark:border-blue-900/40 dark:bg-blue-950/25">
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent" />
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                  Creating Site
                 </p>
               </div>
-              <Switch.Root
-                checked={includeSampleData}
-                onCheckedChange={setIncludeSampleData}
-                className="h-6 w-11 shrink-0 rounded-full bg-gray-200 data-[state=checked]:bg-[var(--brand)] dark:bg-gray-700"
-                aria-label="Include sample data"
-              >
-                <Switch.Thumb className="block h-5 w-5 translate-x-0.5 rounded-full bg-white transition data-[state=checked]:translate-x-5" />
-              </Switch.Root>
+
+              <div className="mt-3 rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {currentSetupLine}
+                </p>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-gray-200 px-3 py-2 dark:border-gray-700">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  This takes a little while because we ensure your data never mixes with anyone
+                  else&apos;s.
+                </p>
+              </div>
+
+              <div className="mt-3 flex items-start gap-2 border-t border-gray-200 pt-2 dark:border-gray-700">
+                <Mail size={13} className="mt-0.5 shrink-0 text-gray-400 dark:text-gray-500" />
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Your site details will be sent to your email. You can safely close this page and
+                  check your email later.
+                </p>
+              </div>
             </div>
             </div>
           ) : null}
@@ -958,8 +1089,15 @@ export default function Onboarding() {
             {step < 4 ? (
               <Button
                 type="button"
-                disabled={step === 0 && !agreeTerms}
-                onClick={() => {
+                disabled={isStepSubmitting}
+                onClick={async () => {
+                  if (step === 3) {
+                    await verifyEmailAndContinue()
+                    return
+                  }
+                  if (isStepSubmitting) return
+                  setIsStepSubmitting(true)
+                  try {
                   if (step === 0) {
                     const fullName = `${adminFirstName} ${adminLastName}`.trim()
                     if (!fullName || !adminEmail.trim() || adminPhoneDigits.length < 6) {
@@ -980,16 +1118,74 @@ export default function Onboarding() {
                       toast.error('Please accept Terms of Service and Privacy Policy.')
                       return
                     }
+                    try {
+                      await ensureDraftId()
+                    } catch (error) {
+                      toast.error(error.message || 'Failed to start onboarding.')
+                      return
+                    }
                   }
                   if (step === 1 && !slugOk) {
                     toast.error('Enter a valid slug.')
                     return
                   }
-                  if (step === 3 && verificationCodeValue.length !== 6) {
-                    toast.error('Enter the 6-digit verification code.')
-                    return
+                  if (step === 1) {
+                    let activeDraftId = draftId
+                    if (!activeDraftId) {
+                      try {
+                        activeDraftId = await ensureDraftId()
+                      } catch (error) {
+                        toast.error(error.message || 'Onboarding draft missing. Please restart onboarding.')
+                        return
+                      }
+                    }
+                    try {
+                      await apiRequest(`/api/onboarding/draft/${activeDraftId}/step-1`, {
+                        method: 'PATCH',
+                        body: {
+                          slug,
+                          workspaceSlug: slug,
+                          businessName,
+                          industry,
+                          businessSize,
+                          businessWebsite,
+                        },
+                      })
+                    } catch (error) {
+                      toast.error(error.message || 'Failed to save business details.')
+                      return
+                    }
+                  }
+                  if (step === 2) {
+                    let activeDraftId = draftId
+                    if (!activeDraftId) {
+                      try {
+                        activeDraftId = await ensureDraftId()
+                      } catch (error) {
+                        toast.error(error.message || 'Onboarding draft missing. Please restart onboarding.')
+                        return
+                      }
+                    }
+                    try {
+                      await apiRequest(`/api/onboarding/draft/${activeDraftId}/step-2`, {
+                        method: 'PATCH',
+                        body: {
+                          billingPlan,
+                          trialDays: 14,
+                        },
+                      })
+                      await apiRequest(`/api/onboarding/draft/${activeDraftId}/send-otp`, {
+                        method: 'POST',
+                      })
+                    } catch (error) {
+                      toast.error(error.message || 'Failed to prepare email verification.')
+                      return
+                    }
                   }
                   setStep((s) => s + 1)
+                  } finally {
+                    setIsStepSubmitting(false)
+                  }
                 }}
                 aria-label={
                   step === 0
@@ -999,11 +1195,16 @@ export default function Onboarding() {
                       : 'Next step'
                 }
               >
-                {step === 0 ? 'Continue' : step >= 2 ? 'Submit' : 'Next'}
+                {isStepSubmitting ? 'Working...' : step === 0 ? 'Continue' : step >= 2 ? 'Submit' : 'Next'}
               </Button>
             ) : (
-              <Button type="button" onClick={finish} aria-label="Complete setup">
-                Finish
+              <Button
+                type="button"
+                onClick={finish}
+                disabled={isFinalizing}
+                aria-label="Complete setup"
+              >
+                {isFinalizing ? 'Finalizing...' : 'Finish'}
               </Button>
             )}
           </div>

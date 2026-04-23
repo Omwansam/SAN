@@ -49,7 +49,7 @@ export function AuthProvider({ children }) {
     }
   }, [tenantId])
 
-  const login = useCallback((user, tenantIdOverride) => {
+  const login = useCallback((user, tenantIdOverride, token = null) => {
     const tid = tenantIdOverride ?? tenantId
     if (!tid) return
     const safe = {
@@ -57,6 +57,8 @@ export function AuthProvider({ children }) {
       name: user.name,
       email: user.email ?? '',
       role: user.role,
+      hasPin: Boolean(user.hasPin),
+      token: token || user.token || null,
     }
     setJSON(tid, SESSION_KEY, safe)
     dispatch({ type: 'SET_USER', user: safe })

@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Button } from '../components/shared/Button'
+import { Input } from '../components/shared/Input'
+import { Modal } from '../components/shared/Modal'
 import { useTenant } from '../hooks/useTenant'
+import { useAuth } from '../hooks/useAuth'
 import { createDefaultTenantConfig, withTenantDefaults } from '../utils/tenantDefaults'
+import { apiRequest } from '../utils/api'
 
 const BUSINESS_TYPES = [
   { id: 'retail', label: 'Retail' },
@@ -58,8 +62,14 @@ function modulesForBusinessType(type) {
 export default function BusinessTypeSelection() {
   const navigate = useNavigate()
   const { tenantId, tenantConfig, setTenantConfig } = useTenant()
+  const { currentUser } = useAuth()
   const [selectedType, setSelectedType] = useState(tenantConfig?.businessType || 'retail')
   const [saving, setSaving] = useState(false)
+  const [pinModalOpen, setPinModalOpen] = useState(false)
+  const [pinSaving, setPinSaving] = useState(false)
+  const [pinForm, setPinForm] = useState({ pin: '', confirmPin: '' })
+  const [pinConfigured, setPinConfigured] = useState(Boolean(currentUser?.hasPin))
+  const [pinPrompted, setPinPrompted] = useState(false)
 
   const businessName = useMemo(
     () => tenantConfig?.businessName || 'your business',
@@ -72,25 +82,90 @@ export default function BusinessTypeSelection() {
     }
   }, [tenantId, tenantConfig, navigate])
 
+  useEffect(() => {
+    setPinConfigured(Boolean(currentUser?.hasPin))
+  }, [currentUser?.hasPin])
+
+  useEffect(() => {
+    if (!pinConfigured && !pinPrompted) {
+      setPinModalOpen(true)
+      setPinPrompted(true)
+    }
+  }, [pinConfigured, pinPrompted])
+
   if (!tenantId || !tenantConfig) return null
 
-  const submit = () => {
+  const submit = async () => {
     setSaving(true)
     try {
+      const shouldIncludeSampleData = tenantConfig?.includeSampleData !== false
+
       const nextConfig = withTenantDefaults(
         {
           ...tenantConfig,
           businessType: selectedType,
           businessTypeConfirmed: true,
           modules: modulesForBusinessType(selectedType),
+          workspaceInitialized: true,
         },
         tenantId,
       )
+      if (!currentUser?.token) {
+        toast.error('Session expired. Please sign in again.')
+        navigate('/login', { replace: true })
+        return
+      }
+      await apiRequest('/api/onboarding/business-type', {
+        method: 'PATCH',
+        token: currentUser.token,
+        body: {
+          workspaceSlug: tenantId,
+          businessType: selectedType,
+          businessTypeConfirmed: true,
+          workspaceInitialized: true,
+          includeSampleData: shouldIncludeSampleData,
+          modules: nextConfig.modules,
+        },
+      })
       setTenantConfig(nextConfig)
       toast.success('Business type selected.')
+      if (!pinConfigured) {
+        setPinModalOpen(true)
+        return
+      }
       navigate('/pos', { replace: true })
+    } catch (error) {
+      toast.error(error.message || 'Failed to save business type.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const savePin = async () => {
+    if (!tenantId || !currentUser?.token) return
+    if (!/^\d{4,8}$/.test(pinForm.pin)) {
+      toast.error('PIN must be 4-8 digits.')
+      return
+    }
+    if (pinForm.pin !== pinForm.confirmPin) {
+      toast.error('PINs do not match.')
+      return
+    }
+    setPinSaving(true)
+    try {
+      await apiRequest(`/api/users/pin?workspace=${encodeURIComponent(tenantId)}`, {
+        method: 'PUT',
+        token: currentUser.token,
+        body: { pin: pinForm.pin },
+      })
+      setPinConfigured(true)
+      setPinModalOpen(false)
+      toast.success('PIN saved.')
+      navigate('/pos', { replace: true })
+    } catch (error) {
+      toast.error(error.message || 'Failed to save PIN.')
+    } finally {
+      setPinSaving(false)
     }
   }
 
@@ -130,6 +205,43 @@ export default function BusinessTypeSelection() {
           </Button>
         </div>
       </section>
+      <Modal
+        open={pinModalOpen}
+        onOpenChange={(open) => {
+          if (!open && !pinConfigured) return
+          setPinModalOpen(open)
+        }}
+        title="Create your PIN"
+        description="Set a PIN now so you can quickly sign in next time."
+        footer={
+          <Button type="button" onClick={savePin} disabled={pinSaving}>
+            {pinSaving ? 'Saving...' : 'Save PIN'}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          <Input
+            label="PIN"
+            type="password"
+            inputMode="numeric"
+            value={pinForm.pin}
+            onChange={(e) =>
+              setPinForm((prev) => ({ ...prev, pin: e.target.value.replace(/\D/g, '').slice(0, 8) }))
+            }
+            placeholder="4-8 digits"
+          />
+          <Input
+            label="Confirm PIN"
+            type="password"
+            inputMode="numeric"
+            value={pinForm.confirmPin}
+            onChange={(e) =>
+              setPinForm((prev) => ({ ...prev, confirmPin: e.target.value.replace(/\D/g, '').slice(0, 8) }))
+            }
+            placeholder="Repeat PIN"
+          />
+        </div>
+      </Modal>
     </main>
   )
 }

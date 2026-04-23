@@ -1,17 +1,26 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+//////////////////////////////////////////////////////
+// PRISMA SCHEMA
+// Multi-tenant POS backend data model
+//////////////////////////////////////////////////////
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
+//////////////////////////////////////////////////////
+// PRISMA CLIENT GENERATOR
+//////////////////////////////////////////////////////
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider = "prisma-client-js"
 }
 
+//////////////////////////////////////////////////////
+// DATABASE CONNECTION
+//////////////////////////////////////////////////////
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
+
+//////////////////////////////////////////////////////
+// ENUMS (FIXED VALUE SETS)
+// These restrict fields to predefined values
+//////////////////////////////////////////////////////
 
 enum TenantStatus {
   active
@@ -76,36 +85,80 @@ enum DiscountType {
   flat
 }
 
-model Tenant {
-  id           String       @id @default(cuid())
-  slug         String       @unique
-  businessName String
-  businessType String
-  status       TenantStatus @default(active)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  domains       TenantDomain[]
-  config        TenantConfig?
-  users         User[]
-  branches      Branch[]
-  registers     Register[]
-  categories    Category[]
-  products      Product[]
-  customers     Customer[]
-  orders        Order[]
-  stockLogs     StockLog[]
-  dispensing    DispensingLog[]
-  kitchenTickets KitchenTicket[]
-  tables        DiningTable[]
-  appointments  Appointment[]
-  notifications Notification[]
-  heldCarts     HeldCart[]
-  authSessions  AuthSession[]
-  runtimeState  TenantRuntimeState?
-  draftCarts    DraftCart[]
+/// Workspace provisioning lifecycle (matches onboarding “Setting up” step when backed by jobs).
+enum TenantProvisionStatus {
+  pending
+  provisioning
+  ready
+  failed
 }
 
+/// Billing cadence chosen during onboarding (step “Billing”).
+enum BillingPlanInterval {
+  monthly
+  annual
+}
+
+/// UI step index in onboarding wizard.
+enum OnboardingStep {
+  create_account
+  business_details
+  billing
+  verify_email
+  setting_up
+  completed
+}
+
+enum OnboardingStatus {
+  in_progress
+  completed
+  abandoned
+}
+
+//////////////////////////////////////////////////////
+// TENANCY CORE TABLES
+//////////////////////////////////////////////////////
+
+// TENANT TABLE
+model Tenant {
+  id                   String                @id @default(cuid())
+  slug                 String                @unique
+  businessName         String
+  businessType         String
+  status               TenantStatus          @default(active)
+  /// Optional dedicated DB schema name for multi-tenant isolation (set after provisioning).
+  schemaName           String?               @unique
+  provisionStatus      TenantProvisionStatus @default(ready)
+  provisionError       String?
+  provisionStartedAt   DateTime?
+  provisionCompletedAt DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+
+  domains                     TenantDomain[]
+  config                      TenantConfig?
+  users                       User[]
+  branches                    Branch[]
+  registers                   Register[]
+  categories                  Category[]
+  products                    Product[]
+  customers                   Customer[]
+  orders                      Order[]
+  stockLogs                   StockLog[]
+  dispensing                  DispensingLog[]
+  kitchenTickets              KitchenTicket[]
+  tables                      DiningTable[]
+  appointments                Appointment[]
+  notifications               Notification[]
+  heldCarts                   HeldCart[]
+  authSessions                AuthSession[]
+  runtimeState                TenantRuntimeState?
+  draftCarts                  DraftCart[]
+  emailVerificationChallenges EmailVerificationChallenge[]
+  onboardingDrafts            OnboardingDraft[]
+}
+
+// TENANT DOMAIN TABLE
 model TenantDomain {
   id        String   @id @default(cuid())
   tenantId  String
@@ -118,38 +171,65 @@ model TenantDomain {
   @@index([tenantId])
 }
 
+// TENANT CONFIG TABLE
 model TenantConfig {
-  id                  String   @id @default(cuid())
-  tenantId            String   @unique
-  logo                String?
-  primaryColor        String?  @default("#2563eb")
-  timezone            String?  @default("Africa/Nairobi")
-  language            String?  @default("en")
-  currencyCode        String?  @default("KES")
-  currencySymbol      String?  @default("KSh")
-  currencyPosition    String?  @default("before")
-  taxRate             Float    @default(0)
-  taxLabel            String?  @default("VAT")
-  receiptFooter       String?
-  paymentMethods      Json?
-  kitchenStations     Json?
-  modules             Json?
-  billing             Json?
-  receipt             Json?
-  roles               Json?
-  customFields        Json?
-  deliveryFee         Int      @default(0)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                    String               @id @default(cuid())
+  tenantId              String               @unique
+  logo                  String?
+  primaryColor          String?              @default("#2563eb")
+  timezone              String?              @default("Africa/Nairobi")
+  language              String?              @default("en")
+  currencyCode          String?              @default("KES")
+  currencySymbol        String?              @default("KSh")
+  currencyPosition      String?              @default("before")
+  taxRate               Float                @default(0)
+  taxLabel              String?              @default("VAT")
+  receiptFooter         String?
+  paymentMethods        Json?
+  kitchenStations       Json?
+  modules               Json?
+  billing               Json?
+  receipt               Json?
+  roles                 Json?
+  customFields          Json?
+  deliveryFee           Int                  @default(0)
+  /// Onboarding step 1 — industry label (e.g. “Retail”, “Pharmacy”).
+  industry              String?
+  /// Onboarding step 1 — company size band.
+  businessSize          String?
+  /// Onboarding step 1 — optional public website.
+  website               String?
+  /// After BusinessTypeSelection; false until user confirms vertical.
+  businessTypeConfirmed Boolean              @default(false)
+  /// Whether sample catalogue was requested at signup (BusinessTypeSelection reads this).
+  includeSampleData     Boolean              @default(true)
+  /// Set true after first business-type flow completes (seed / empty workspace).
+  workspaceInitialized  Boolean              @default(false)
+  /// When user accepted Terms / Privacy during onboarding.
+  termsAcceptedAt       DateTime?
+  /// When email OTP step was verified server-side.
+  emailVerifiedAt       DateTime?
+  /// Onboarding billing step: monthly vs annual (also mirrored inside `billing` JSON if present).
+  billingPlanInterval   BillingPlanInterval?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
+
+//////////////////////////////////////////////////////
+// USER TABLE
+//////////////////////////////////////////////////////
 
 model User {
   id           String    @id @default(cuid())
   tenantId     String
   name         String
+  firstName    String?
+  lastName     String?
   email        String
+  /// E.164 or display form from onboarding phone picker (e.g. “+254 712345678”).
+  phone        String?
   passwordHash String
   role         UserRole  @default(cashier)
   pin          String?
@@ -159,18 +239,25 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  register    Register?    @relation(fields: [registerId], references: [id], onDelete: SetNull)
-  userBranches UserBranch[]
-  orders      Order[]      @relation("CashierOrders")
-  stockLogs   StockLog[]
-  authSessions AuthSession[]
+  tenant                  Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  register                Register?         @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  userBranches            UserBranch[]
+  orders                  Order[]           @relation("CashierOrders")
+  stockLogs               StockLog[]
+  authSessions            AuthSession[]
+  onboardingDraftsCreated OnboardingDraft[] @relation("OnboardingCreatedAdmin")
 
   @@unique([tenantId, email])
   @@index([tenantId])
+  @@index([tenantId, phone])
   @@index([registerId])
 }
 
+//////////////////////////////////////////////////////
+// BRANCH / ACCESS TABLES
+//////////////////////////////////////////////////////
+
+// BRANCH TABLE
 model Branch {
   id        String   @id @default(cuid())
   tenantId  String
@@ -178,23 +265,24 @@ model Branch {
   address   String?
   createdAt DateTime @default(now())
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userBranches  UserBranch[]
-  orders        Order[]
-  stockLogs     StockLog[]
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userBranches   UserBranch[]
+  orders         Order[]
+  stockLogs      StockLog[]
   kitchenTickets KitchenTicket[]
-  tables        DiningTable[]
-  heldCarts     HeldCart[]
-  runtimeStates TenantRuntimeState[]
-  draftCarts    DraftCart[]
+  tables         DiningTable[]
+  heldCarts      HeldCart[]
+  runtimeStates  TenantRuntimeState[]
+  draftCarts     DraftCart[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
 }
 
+// USER BRANCH ACCESS TABLE (JOIN TABLE)
 model UserBranch {
-  userId   String
-  branchId String
+  userId    String
+  branchId  String
   createdAt DateTime @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -204,6 +292,7 @@ model UserBranch {
   @@index([branchId])
 }
 
+// REGISTER TABLE
 model Register {
   id           String         @id @default(cuid())
   tenantId     String
@@ -214,15 +303,20 @@ model Register {
   cashierId    String?
   createdAt    DateTime       @default(now())
 
-  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  orders Order[]
-  users  User[]
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders        Order[]
+  users         User[]
   runtimeStates TenantRuntimeState[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
 }
 
+//////////////////////////////////////////////////////
+// CATALOG TABLES
+//////////////////////////////////////////////////////
+
+// CATEGORY TABLE
 model Category {
   id        String   @id @default(cuid())
   tenantId  String
@@ -239,6 +333,7 @@ model Category {
   @@index([tenantId])
 }
 
+// PRODUCT TABLE
 model Product {
   id               String   @id @default(cuid())
   tenantId         String
@@ -261,18 +356,23 @@ model Product {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category    Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  orderItems  OrderItem[]
-  stockLogs   StockLog[]
-  draftLines  DraftCartLine[]
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category   Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  orderItems OrderItem[]
+  stockLogs  StockLog[]
+  draftLines DraftCartLine[]
 
-  @@index([tenantId])
-  @@index([categoryId])
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
+  @@index([tenantId])
+  @@index([categoryId])
 }
 
+//////////////////////////////////////////////////////
+// CUSTOMER & ORDER TABLES
+//////////////////////////////////////////////////////
+
+// CUSTOMER TABLE
 model Customer {
   id            String   @id @default(cuid())
   tenantId      String
@@ -285,10 +385,10 @@ model Customer {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  orders       Order[]
-  appointments Appointment[]
-  dispensing   DispensingLog[]
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders           Order[]
+  appointments     Appointment[]
+  dispensing       DispensingLog[]
   activeDraftCarts DraftCart[]
 
   @@index([tenantId])
@@ -296,40 +396,41 @@ model Customer {
   @@index([tenantId, email])
 }
 
+// ORDER TABLE
 model Order {
-  id               String        @id @default(cuid())
-  tenantId         String
-  branchId         String?
-  registerId       String?
-  cashierId        String?
-  customerId       String?
-  customerName     String?
-  status           OrderStatus   @default(completed)
-  paymentStatus    PaymentStatus @default(paid)
-  subtotal         Int
-  taxAmount        Int           @default(0)
-  discountAmount   Int           @default(0)
-  taxableBase      Int           @default(0)
-  total            Int
-  change           Int           @default(0)
-  receiptPrinted   Boolean       @default(false)
-  notes            String?
-  partial          Boolean       @default(false)
-  tipsTotal        Int           @default(0)
-  deliveryFeeAmount Int          @default(0)
-  serviceMode      ServiceMode?
-  serviceModeLabel String?
-  deliveryAddress  String?
-  deliveryPhone    String?
-  deliveryRider    String?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  id                String        @id @default(cuid())
+  tenantId          String
+  branchId          String?
+  registerId        String?
+  cashierId         String?
+  customerId        String?
+  customerName      String?
+  status            OrderStatus   @default(completed)
+  paymentStatus     PaymentStatus @default(paid)
+  subtotal          Int
+  taxAmount         Int           @default(0)
+  discountAmount    Int           @default(0)
+  taxableBase       Int           @default(0)
+  total             Int
+  change            Int           @default(0)
+  receiptPrinted    Boolean       @default(false)
+  notes             String?
+  partial           Boolean       @default(false)
+  tipsTotal         Int           @default(0)
+  deliveryFeeAmount Int           @default(0)
+  serviceMode       ServiceMode?
+  serviceModeLabel  String?
+  deliveryAddress   String?
+  deliveryPhone     String?
+  deliveryRider     String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch        Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  register      Register?     @relation(fields: [registerId], references: [id], onDelete: SetNull)
-  cashier       User?         @relation("CashierOrders", fields: [cashierId], references: [id], onDelete: SetNull)
-  customer      Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch?        @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  register      Register?      @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  cashier       User?          @relation("CashierOrders", fields: [cashierId], references: [id], onDelete: SetNull)
+  customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   payments      Payment[]
   kitchenTicket KitchenTicket?
@@ -343,6 +444,7 @@ model Order {
   @@index([customerId])
 }
 
+// ORDER ITEM TABLE
 model OrderItem {
   id                String   @id @default(cuid())
   orderId           String
@@ -374,6 +476,7 @@ model OrderItem {
   @@index([productId])
 }
 
+// PAYMENT TABLE
 model Payment {
   id        String        @id @default(cuid())
   orderId   String
@@ -387,16 +490,21 @@ model Payment {
   @@index([orderId])
 }
 
+//////////////////////////////////////////////////////
+// OPERATIONS / LOG TABLES
+//////////////////////////////////////////////////////
+
+// STOCK LOG TABLE
 model StockLog {
-  id         String   @id @default(cuid())
-  tenantId   String
-  branchId   String?
-  productId  String?
+  id          String   @id @default(cuid())
+  tenantId    String
+  branchId    String?
+  productId   String?
   productName String?
-  delta      Int
-  reason     String
-  userId     String?
-  createdAt  DateTime @default(now())
+  delta       Int
+  reason      String
+  userId      String?
+  createdAt   DateTime @default(now())
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch  Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -409,6 +517,7 @@ model StockLog {
   @@index([userId])
 }
 
+// DISPENSING LOG TABLE
 model DispensingLog {
   id         String   @id @default(cuid())
   tenantId   String
@@ -417,9 +526,9 @@ model DispensingLog {
   customerId String?
   createdAt  DateTime @default(now())
 
-  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order    Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customer Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   lines    DispensingLine[]
 
   @@index([tenantId])
@@ -427,19 +536,20 @@ model DispensingLog {
   @@index([customerId])
 }
 
+// DISPENSING LINE TABLE
 model DispensingLine {
-  id                String   @id @default(cuid())
+  id                String  @id @default(cuid())
   dispensingLogId   String
   name              String
   qty               Int
   rxNumber          String?
   prescriber        String?
   patientDOB        String?
-  controlled        Boolean  @default(false)
+  controlled        Boolean @default(false)
   deaNumber         String?
-  refillsAuthorized Int      @default(0)
-  refillsRemaining  Int      @default(0)
-  pickupVerified    Boolean  @default(false)
+  refillsAuthorized Int     @default(0)
+  refillsRemaining  Int     @default(0)
+  pickupVerified    Boolean @default(false)
   pickupIdLast4     String?
 
   dispensingLog DispensingLog @relation(fields: [dispensingLogId], references: [id], onDelete: Cascade)
@@ -447,6 +557,11 @@ model DispensingLine {
   @@index([dispensingLogId])
 }
 
+//////////////////////////////////////////////////////
+// KITCHEN / FLOOR / APPOINTMENT TABLES
+//////////////////////////////////////////////////////
+
+// KITCHEN TICKET TABLE
 model KitchenTicket {
   id        String   @id @default(cuid())
   tenantId  String
@@ -455,15 +570,16 @@ model KitchenTicket {
   status    String?  @default("preparing")
   createdAt DateTime @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order  Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  branch Branch?             @relation(fields: [branchId], references: [id], onDelete: SetNull)
   items  KitchenTicketItem[]
 
   @@index([tenantId])
   @@index([branchId])
 }
 
+// KITCHEN TICKET ITEM TABLE
 model KitchenTicketItem {
   id         String     @id @default(cuid())
   ticketId   String
@@ -483,6 +599,7 @@ model KitchenTicketItem {
   @@index([ticketId])
 }
 
+// DINING TABLE LAYOUT TABLE
 model DiningTable {
   id           String   @id @default(cuid())
   tenantId     String
@@ -498,13 +615,14 @@ model DiningTable {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([branchId])
 }
 
+// APPOINTMENT TABLE
 model Appointment {
   id              String   @id @default(cuid())
   tenantId        String
@@ -524,6 +642,11 @@ model Appointment {
   @@index([tenantId, startAt])
 }
 
+//////////////////////////////////////////////////////
+// RUNTIME / SESSION / CART TABLES
+//////////////////////////////////////////////////////
+
+// NOTIFICATION TABLE
 model Notification {
   id        String            @id @default(cuid())
   tenantId  String
@@ -537,6 +660,7 @@ model Notification {
   @@index([tenantId])
 }
 
+// HELD CART TABLE
 model HeldCart {
   id        String   @id @default(cuid())
   tenantId  String
@@ -544,24 +668,25 @@ model HeldCart {
   snapshot  Json
   createdAt DateTime @default(now())
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([branchId])
 }
 
+// AUTH SESSION TABLE
 model AuthSession {
-  id         String   @id @default(cuid())
-  tenantId   String
-  userId     String?
-  tokenHash  String?
-  userName   String?
-  userEmail  String?
-  role       UserRole?
-  issuedAt   DateTime @default(now())
-  expiresAt  DateTime?
-  revokedAt  DateTime?
+  id        String    @id @default(cuid())
+  tenantId  String
+  userId    String?
+  tokenHash String?
+  userName  String?
+  userEmail String?
+  role      UserRole?
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime?
+  revokedAt DateTime?
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -571,6 +696,7 @@ model AuthSession {
   @@index([expiresAt])
 }
 
+// TENANT RUNTIME STATE TABLE
 model TenantRuntimeState {
   id               String   @id @default(cuid())
   tenantId         String   @unique
@@ -587,6 +713,7 @@ model TenantRuntimeState {
   @@index([activeRegisterId])
 }
 
+// DRAFT CART TABLE
 model DraftCart {
   id                 String       @id @default(cuid())
   tenantId           String
@@ -600,9 +727,9 @@ model DraftCart {
   deliveryRiderName  String?
   updatedAt          DateTime     @updatedAt
 
-  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch         Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  activeCustomer Customer? @relation(fields: [activeCustomerId], references: [id], onDelete: SetNull)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  activeCustomer Customer?       @relation(fields: [activeCustomerId], references: [id], onDelete: SetNull)
   lines          DraftCartLine[]
 
   @@unique([tenantId, branchId])
@@ -610,6 +737,7 @@ model DraftCart {
   @@index([activeCustomerId])
 }
 
+// DRAFT CART LINE TABLE
 model DraftCartLine {
   id                String   @id @default(cuid())
   draftCartId       String
@@ -639,4 +767,106 @@ model DraftCartLine {
 
   @@index([draftCartId])
   @@index([productId])
+}
+
+//////////////////////////////////////////////////////
+// ONBOARDING & AUTH SUPPORT TABLES
+//////////////////////////////////////////////////////
+
+// EMAIL VERIFICATION CHALLENGE TABLE
+// Server-side OTP storage for onboarding verification (hash only).
+model EmailVerificationChallenge {
+  id           String    @id @default(cuid())
+  email        String
+  /// Intended workspace slug once registration completes (may be set before `Tenant` row exists).
+  slug         String?
+  codeHash     String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  attemptCount Int       @default(0)
+  tenantId     String?
+  createdAt    DateTime  @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([email, slug])
+  @@index([expiresAt])
+  @@index([tenantId])
+}
+
+// AUTH LOGIN ATTEMPT TABLE
+// Optional audit trail for password/PIN login attempts.
+model AuthLoginAttempt {
+  id            String   @id @default(cuid())
+  workspaceSlug String
+  identifier    String
+  method        String
+  success       Boolean
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceSlug, createdAt])
+  @@index([createdAt])
+}
+
+// ONBOARDING DRAFT TABLE
+// Persistent snapshot of the 5-step onboarding flow.
+model OnboardingDraft {
+  id          String           @id @default(cuid())
+  status      OnboardingStatus @default(in_progress)
+  currentStep OnboardingStep   @default(create_account)
+
+  /// Step 0: account details
+  adminFirstName  String?
+  adminLastName   String?
+  adminEmail      String
+  phoneCountryIso String?   @default("KE")
+  adminPhoneLocal String?
+  adminPhoneFull  String?
+  passwordHash    String?
+  passwordScore   Int?
+  termsAcceptedAt DateTime?
+
+  /// Step 1: business details
+  workspaceSlug   String?
+  businessName    String?
+  industry        String?
+  businessSize    String?
+  businessWebsite String?
+
+  /// Step 2: billing selection
+  billingPlanInterval BillingPlanInterval?
+  trialEndsAt         DateTime?
+
+  /// Step 3: email verification
+  verificationCodeHash String?
+  verificationSentAt   DateTime?
+  resendCount          Int       @default(0)
+  resendAvailableAt    DateTime?
+  emailVerifiedAt      DateTime?
+
+  /// Step 4: setup/provisioning progress shown in UI
+  setupProgress     Int?      @default(50)
+  setupMessageIndex Int?      @default(0)
+  setupStartedAt    DateTime?
+  setupCompletedAt  DateTime?
+
+  /// Link to tenant once workspace is created.
+  tenantId           String?
+  createdAdminUserId String?
+  completedAt        DateTime?
+  abandonedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  tenant           Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  createdAdminUser User?   @relation("OnboardingCreatedAdmin", fields: [createdAdminUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, currentStep])
+  @@index([adminEmail])
+  @@index([workspaceSlug])
+  @@index([tenantId])
+  @@index([createdAdminUserId])
 }

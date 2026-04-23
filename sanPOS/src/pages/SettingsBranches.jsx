@@ -9,99 +9,103 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { useAuth } from '../hooks/useAuth'
 import { useBranch } from '../hooks/useBranch'
 import { useTenant } from '../hooks/useTenant'
-import { MAIN_BRANCH_ID } from '../utils/defaultBranches'
-import { getJSON, setJSON } from '../utils/storage'
-import { newId } from '../utils/uuid'
-
-const KEY = 'branches'
-const ACTIVE = 'activeBranchId'
+import { apiRequest } from '../utils/api'
 
 export default function SettingsBranches() {
   const { tenantId, tenantConfig } = useTenant()
-  const { can } = useAuth()
-  const { refreshBranches, activeBranchId } = useBranch()
+  const { can, currentUser } = useAuth()
+  const { refreshBranches } = useBranch()
   const [branches, setBranches] = useState([])
   const [users, setUsers] = useState([])
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ name: '', address: '' })
   const [deleteId, setDeleteId] = useState(null)
-
-  useEffect(() => {
-    if (!tenantId) return
-    queueMicrotask(() => {
-      setBranches(getJSON(tenantId, KEY, []))
-      setUsers(getJSON(tenantId, 'users', []))
-    })
-  }, [tenantId])
+  const [loading, setLoading] = useState(false)
 
   if (!tenantConfig) return null
   if (!can('settings')) return <Navigate to="/settings" replace />
 
-  function persistBranches(next) {
-    if (!tenantId) return
-    setJSON(tenantId, KEY, next)
-    setBranches(next)
+  const workspaceQuery = tenantId ? `?workspace=${encodeURIComponent(tenantId)}` : ''
+
+  async function reloadData() {
+    if (!tenantId || !currentUser?.token) return
+    const [branchesRes, usersRes] = await Promise.all([
+      apiRequest(`/api/branches${workspaceQuery}`, { token: currentUser.token }),
+      apiRequest(`/api/users${workspaceQuery}`, { token: currentUser.token }),
+    ])
+    setBranches(Array.isArray(branchesRes?.data) ? branchesRes.data : [])
+    setUsers(Array.isArray(usersRes?.data) ? usersRes.data : [])
     refreshBranches()
   }
 
-  function persistUsers(next) {
-    if (!tenantId) return
-    setJSON(tenantId, 'users', next)
-    setUsers(next)
-  }
+  useEffect(() => {
+    if (!tenantId || !currentUser?.token) return
+    let mounted = true
+    ;(async () => {
+      try {
+        setLoading(true)
+        await reloadData()
+      } catch (error) {
+        if (mounted) toast.error(error.message || 'Failed to load branch settings')
+      } finally {
+        if (mounted) setLoading(false)
+      }
+    })()
 
-  function saveBranch() {
+    return () => {
+      mounted = false
+    }
+  }, [tenantId, currentUser?.token])
+
+  async function saveBranch() {
     if (!form.name.trim()) {
       toast.error('Name is required')
       return
     }
-    if (editing) {
-      persistBranches(
-        branches.map((b) =>
-          b.id === editing.id ? { ...b, name: form.name.trim(), address: form.address.trim() } : b,
-        ),
-      )
-      toast.success('Branch updated')
-    } else {
-      persistBranches([
-        ...branches,
-        {
-          id: newId(),
-          name: form.name.trim(),
-          address: form.address.trim(),
-          createdAt: new Date().toISOString(),
-        },
-      ])
-      toast.success('Branch created')
+    if (!tenantId || !currentUser?.token) return
+    const payload = {
+      name: form.name.trim(),
+      address: form.address.trim(),
     }
-    setOpen(false)
-    setEditing(null)
-    setForm({ name: '', address: '' })
+    try {
+      if (editing) {
+        await apiRequest(`/api/branches/${editing.id}${workspaceQuery}`, {
+          method: 'PUT',
+          body: payload,
+          token: currentUser.token,
+        })
+        toast.success('Branch updated')
+      } else {
+        await apiRequest(`/api/branches${workspaceQuery}`, {
+          method: 'POST',
+          body: payload,
+          token: currentUser.token,
+        })
+        toast.success('Branch created')
+      }
+      await reloadData()
+      setOpen(false)
+      setEditing(null)
+      setForm({ name: '', address: '' })
+    } catch (error) {
+      toast.error(error.message || 'Failed to save branch')
+    }
   }
 
-  function confirmDelete() {
-    if (!deleteId || !tenantId) return
-    const next = branches.filter((b) => b.id !== deleteId)
-    if (next.length === 0) {
-      persistBranches([
-        {
-          id: MAIN_BRANCH_ID,
-          name: 'Main',
-          address: '',
-          createdAt: new Date().toISOString(),
-        },
-      ])
-      setJSON(tenantId, ACTIVE, MAIN_BRANCH_ID)
-    } else {
-      persistBranches(next)
-      if (activeBranchId === deleteId) {
-        setJSON(tenantId, ACTIVE, next[0].id)
-      }
+  async function confirmDelete() {
+    if (!deleteId || !tenantId || !currentUser?.token) return
+    try {
+      await apiRequest(`/api/branches/${deleteId}${workspaceQuery}`, {
+        method: 'DELETE',
+        token: currentUser.token,
+      })
+      await reloadData()
+      toast.success('Branch removed')
+      setDeleteId(null)
+    } catch (error) {
+      toast.error(error.message || 'Failed to delete branch')
     }
-    refreshBranches()
-    toast.success('Branch removed')
-    setDeleteId(null)
   }
 
   function branchAccess(u, branchId) {
@@ -110,7 +114,8 @@ export default function SettingsBranches() {
     return ids.includes(branchId)
   }
 
-  function toggleUserBranch(u, branchId) {
+  async function toggleUserBranch(u, branchId) {
+    if (!tenantId || !currentUser?.token) return
     const allIds = branches.map((b) => b.id)
     let next = Array.isArray(u.branchIds) ? [...u.branchIds] : []
     const impliesAll = next.length === 0
@@ -122,7 +127,17 @@ export default function SettingsBranches() {
       next.push(branchId)
     }
     if (next.length === 0 || next.length === allIds.length) next = []
-    persistUsers(users.map((x) => (x.id === u.id ? { ...x, branchIds: next } : x)))
+    try {
+      await apiRequest(`/api/branches/users/${u.id}/access${workspaceQuery}`, {
+        method: 'PUT',
+        token: currentUser.token,
+        body: { branchIds: next },
+      })
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, branchIds: next } : x)))
+      toast.success('Branch access updated')
+    } catch (error) {
+      toast.error(error.message || 'Failed to update branch access')
+    }
   }
 
   return (
@@ -145,7 +160,9 @@ export default function SettingsBranches() {
       <p className="text-sm text-gray-600 dark:text-gray-400">
         Each branch keeps its own open cart and order history. Assign staff to limit which branches they can open.
       </p>
-      {branches.length === 0 ? (
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading branches...</p>
+      ) : branches.length === 0 ? (
         <EmptyState title="No branches" />
       ) : (
         <ul className="space-y-2">
