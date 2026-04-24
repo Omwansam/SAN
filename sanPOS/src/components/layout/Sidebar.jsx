@@ -8,6 +8,7 @@ import {
   GitBranch,
   HardDriveUpload,
   ScrollText,
+  Truck,
   Landmark,
   LayoutGrid,
   Package,
@@ -126,6 +127,18 @@ export function Sidebar() {
       perm: 'registers',
     },
     {
+      to: '/settings/suppliers',
+      label: 'Suppliers',
+      icon: Truck,
+      perm: 'settings',
+    },
+    {
+      to: '/settings/tax-rates',
+      label: 'Tax rates',
+      icon: Receipt,
+      perm: 'settings',
+    },
+    {
       to: '/superadmin',
       label: 'Super admin',
       icon: Shield,
@@ -136,12 +149,12 @@ export function Sidebar() {
   return (
     <>
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-64 transform border-r border-gray-200/80 bg-[var(--surface-elevated)] shadow-[var(--surface-card-shadow)] transition-transform dark:border-gray-800/80 dark:bg-gray-900 md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex h-screen w-64 flex-col transform border-r border-gray-200/80 bg-[var(--surface-elevated)] shadow-[var(--surface-card-shadow)] transition-transform dark:border-gray-800/80 dark:bg-gray-900 md:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-label="Main navigation"
       >
-        <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-4 dark:border-gray-800/80">
+        <div className="flex shrink-0 items-center gap-3 border-b border-gray-100 px-4 py-4 dark:border-gray-800/80">
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--brand)] text-lg font-black text-white shadow-lg shadow-[var(--brand)]/30">
             S
           </div>
@@ -154,7 +167,8 @@ export function Sidebar() {
             </p>
           </div>
         </div>
-        <nav className="flex flex-col gap-1 p-3">
+        <nav className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="flex flex-col gap-1">
           {items.map((it) => {
             if (it.when && !it.when()) return null
             if (it.perm && !can(it.perm)) return null
@@ -173,6 +187,7 @@ export function Sidebar() {
               </NavLink>
             )
           })}
+          </div>
         </nav>
       </aside>
       {sidebarOpen ? (

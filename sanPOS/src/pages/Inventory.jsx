@@ -9,12 +9,13 @@ import { useAuth } from '../hooks/useAuth'
 import { useBranch } from '../hooks/useBranch'
 import { useProducts } from '../hooks/useProducts'
 import { useTenant } from '../hooks/useTenant'
+import { apiRequest } from '../utils/api'
 import { appendStockLog } from '../utils/stockLog'
 
 export default function Inventory() {
   const { tenantId, tenantConfig } = useTenant()
+  const { currentUser, can } = useAuth()
   const { activeBranchId } = useBranch()
-  const { can } = useAuth()
   const { products, updateProduct } = useProducts()
   const [adj, setAdj] = useState({})
   const [reason, setReason] = useState({})
@@ -24,7 +25,7 @@ export default function Inventory() {
     return <Navigate to="/pos" replace />
   if (!can('inventory')) return <Navigate to="/pos" replace />
 
-  function apply(id) {
+  async function apply(id) {
     const pr = products.find((p) => p.id === id)
     if (!pr) return
     const delta = Number(adj[id]) || 0
@@ -39,15 +40,36 @@ export default function Inventory() {
     if (thRaw !== undefined && String(thRaw).trim() !== '') {
       patch.lowStockAlert = Number(thRaw)
     }
-    updateProduct(patch)
+    try {
+      await updateProduct(patch)
+    } catch (error) {
+      toast.error(error.message || 'Failed to update stock')
+      return
+    }
     if (!tenantId) return
-    appendStockLog(tenantId, {
-      branchId: activeBranchId,
-      productId: pr.id,
-      productName: pr.name,
-      delta,
-      reason: r,
-    })
+    if (currentUser?.token) {
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      apiRequest(`/api/stock${workspace}`, {
+        method: 'POST',
+        token: currentUser.token,
+        body: {
+          branchId: activeBranchId,
+          productId: pr.id,
+          productName: pr.name,
+          delta,
+          reason: r,
+          userId: currentUser.id,
+        },
+      }).catch(() => {})
+    } else {
+      appendStockLog(tenantId, {
+        branchId: activeBranchId,
+        productId: pr.id,
+        productName: pr.name,
+        delta,
+        reason: r,
+      })
+    }
     setAdj((a) => ({ ...a, [id]: '' }))
     setReason((a) => ({ ...a, [id]: '' }))
     toast.success('Stock updated')

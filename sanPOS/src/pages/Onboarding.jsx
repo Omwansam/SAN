@@ -457,8 +457,6 @@ export default function Onboarding() {
     adminLastName,
     adminEmail,
     adminPhoneDigits,
-    adminPhoneFull,
-    adminPassword,
     passwordStrong,
     passwordsMatch,
     agreeTerms,
@@ -469,7 +467,6 @@ export default function Onboarding() {
     includeSampleData,
     billingPlan,
     draftId,
-    isFinalizing,
     ensureDraftId,
   ])
 

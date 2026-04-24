@@ -387,6 +387,69 @@ async function refreshToken(req, res, next) {
   }
 }
 
+/** Confirms the signed-in user's PIN (POS session unlock). Uses DB pin from protect(). */
+async function verifySessionUnlockPin(req, res, next) {
+  try {
+    if (!req.user || !req.tenant) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+    const normalizedPin = normalizePin(req.body?.pin);
+    if (!normalizedPin) {
+      return res.status(400).json({
+        success: false,
+        error: 'PIN must be numeric and 4-8 digits.',
+      });
+    }
+    if (!req.user.pin || req.user.pin !== normalizedPin) {
+      return res.status(401).json({
+        success: false,
+        error: 'PIN does not match your profile.',
+      });
+    }
+    return res.status(200).json({ success: true, message: 'PIN verified' });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+/** Finds an active manager/admin in this tenant with the given PIN (controlled-sale approval). */
+async function verifyManagerPin(req, res, next) {
+  try {
+    const db = req.db || prisma;
+    if (!req.tenant?.id) {
+      return res.status(400).json({ success: false, error: 'Tenant context is required.' });
+    }
+    const normalizedPin = normalizePin(req.body?.pin);
+    if (!normalizedPin) {
+      return res.status(400).json({
+        success: false,
+        error: 'PIN must be numeric and 4-8 digits.',
+      });
+    }
+    const approver = await db.user.findFirst({
+      where: {
+        tenantId: req.tenant.id,
+        active: true,
+        pin: normalizedPin,
+        role: { in: ['manager', 'admin', 'superadmin'] },
+      },
+      select: { id: true, name: true, role: true },
+    });
+    if (!approver) {
+      return res.status(401).json({
+        success: false,
+        error: 'PIN did not match an active manager or admin.',
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: { id: approver.id, name: approver.name, role: approver.role },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   registerUser,
   registerAdmin,
@@ -394,4 +457,6 @@ module.exports = {
   logoutUser,
   getMe,
   refreshToken,
+  verifySessionUnlockPin,
+  verifyManagerPin,
 };

@@ -6,6 +6,8 @@ const {
   logoutUser,
   getMe,
   refreshToken,
+  verifySessionUnlockPin,
+  verifyManagerPin,
 } = require("../controllers/auth.controller");
 const protect = require("../middleware/protect.middleware");
 const authorize = require("../middleware/authorize.middleware");
@@ -27,5 +29,17 @@ authRouter.post('/login', tenantResolver({ required: true }), loginUser);
 authRouter.post('/logout', tenantResolver({ required: false }), logoutUser);
 authRouter.get('/me', tenantResolver({ required: true }), protect, getMe);
 authRouter.post('/refresh', tenantResolver({ required: true }), protect, refreshToken);
+authRouter.post(
+  '/verify-session-pin',
+  tenantResolver({ required: true }),
+  protect,
+  verifySessionUnlockPin,
+);
+authRouter.post(
+  '/verify-manager-pin',
+  tenantResolver({ required: true }),
+  protect,
+  verifyManagerPin,
+);
 
 module.exports = authRouter;

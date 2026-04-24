@@ -90,11 +90,15 @@ export default function Customers() {
             </Button>
             <Button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 if (!edit) return
-                updateCustomer({ ...edit, loyaltyPoints: Number(pts) || 0 })
-                toast.success('Updated')
-                setEdit(null)
+                try {
+                  await updateCustomer({ ...edit, loyaltyPoints: Number(pts) || 0 })
+                  toast.success('Updated')
+                  setEdit(null)
+                } catch (error) {
+                  toast.error(error.message || 'Failed to update customer')
+                }
               }}
             >
               Save
@@ -116,10 +120,15 @@ export default function Customers() {
         title="Delete customer?"
         danger
         confirmLabel="Delete"
-        onConfirm={() => {
-          if (del) deleteCustomer(del)
-          toast.success('Removed')
-          setDel(null)
+        onConfirm={async () => {
+          if (!del) return
+          try {
+            await deleteCustomer(del)
+            toast.success('Removed')
+            setDel(null)
+          } catch (error) {
+            toast.error(error.message || 'Failed to remove customer')
+          }
         }}
       />
     </div>

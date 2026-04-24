@@ -10,7 +10,6 @@ import { Modal } from '../components/shared/Modal'
 import { useAuth } from '../hooks/useAuth'
 import { useProducts } from '../hooks/useProducts'
 import { useTenant } from '../hooks/useTenant'
-import { newId } from '../utils/uuid'
 
 export default function Categories() {
   const { tenantId, tenantConfig } = useTenant()
@@ -24,22 +23,24 @@ export default function Categories() {
   if (!tenantId || !tenantConfig) return null
   if (!can('catalog')) return <Navigate to="/pos" replace />
 
-  const save = () => {
+  const save = async () => {
     if (!name.trim()) {
       toast.error('Name required')
       return
     }
-    addCategory({
-      id: newId(),
-      tenantId,
-      name: name.trim(),
-      color,
-      icon: 'tag',
-      sortOrder: categories.length,
-    })
-    toast.success('Category added')
-    setOpen(false)
-    setName('')
+    try {
+      await addCategory({
+        name: name.trim(),
+        color,
+        icon: 'tag',
+        sortOrder: categories.length,
+      })
+      toast.success('Category added')
+      setOpen(false)
+      setName('')
+    } catch (error) {
+      toast.error(error.message || 'Failed to add category')
+    }
   }
 
   return (
@@ -115,10 +116,15 @@ export default function Categories() {
         title="Delete category?"
         confirmLabel="Delete"
         danger
-        onConfirm={() => {
-          if (del) deleteCategory(del)
-          setDel(null)
-          toast.success('Removed')
+        onConfirm={async () => {
+          if (!del) return
+          try {
+            await deleteCategory(del)
+            setDel(null)
+            toast.success('Removed')
+          } catch (error) {
+            toast.error(error.message || 'Failed to remove category')
+          }
         }}
       />
     </div>

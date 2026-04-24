@@ -155,6 +155,16 @@ export default function Settings() {
               Notification history
             </Link>
           </li>
+          <li>
+            <Link to="/settings/suppliers" className="hover:underline">
+              Suppliers
+            </Link>
+          </li>
+          <li>
+            <Link to="/settings/tax-rates" className="hover:underline">
+              Tax rates
+            </Link>
+          </li>
         </ul>
       </section>
       <section className="rounded-2xl border border-red-200 bg-red-50/50 p-6 dark:border-red-900 dark:bg-red-950/20">

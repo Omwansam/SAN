@@ -7,6 +7,8 @@ import {
   useReducer,
 } from 'react'
 import { getJSON, setJSON } from '../utils/storage'
+import { apiRequest } from '../utils/api'
+import { useAuth } from '../hooks/useAuth'
 import { useTenant } from './TenantContext'
 
 const PRODUCTS_KEY = 'products'
@@ -60,22 +62,48 @@ function productReducer(state, action) {
 
 export function ProductProvider({ children }) {
   const { tenantId } = useTenant()
+  const { currentUser } = useAuth()
   const [state, dispatch] = useReducer(productReducer, {
     products: [],
     categories: [],
   })
 
-  useEffect(() => {
+  const loadCatalog = useCallback(async () => {
     if (!tenantId) {
       dispatch({ type: 'HYDRATE', products: [], categories: [] })
       return
     }
+    const token = currentUser?.token || null
+    if (!token) {
+      dispatch({
+        type: 'HYDRATE',
+        products: getJSON(tenantId, PRODUCTS_KEY, []),
+        categories: getJSON(tenantId, CATEGORIES_KEY, []),
+      })
+      return
+    }
+    const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+    const [productsRes, categoriesRes] = await Promise.all([
+      apiRequest(`/api/products${workspace}`, { token }),
+      apiRequest(`/api/categories${workspace}`, { token }),
+    ])
     dispatch({
       type: 'HYDRATE',
-      products: getJSON(tenantId, PRODUCTS_KEY, []),
-      categories: getJSON(tenantId, CATEGORIES_KEY, []),
+      products: Array.isArray(productsRes?.data) ? productsRes.data : [],
+      categories: Array.isArray(categoriesRes?.data) ? categoriesRes.data : [],
     })
-  }, [tenantId])
+  }, [tenantId, currentUser?.token])
+
+  useEffect(() => {
+    loadCatalog().catch(() => {
+      if (!tenantId) return
+      dispatch({
+        type: 'HYDRATE',
+        products: getJSON(tenantId, PRODUCTS_KEY, []),
+        categories: getJSON(tenantId, CATEGORIES_KEY, []),
+      })
+    })
+  }, [tenantId, loadCatalog])
 
   useEffect(() => {
     if (!tenantId) return
@@ -95,38 +123,173 @@ export function ProductProvider({ children }) {
     dispatch({ type: 'SET_CATEGORIES', categories })
   }, [])
 
-  const addProduct = useCallback((product) => {
-    dispatch({ type: 'ADD_PRODUCT', product })
-  }, [])
+  const addProduct = useCallback(
+    async (product) => {
+      const token = currentUser?.token || null
+      if (!tenantId || !token) {
+        dispatch({ type: 'ADD_PRODUCT', product })
+        return product
+      }
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      const payload = {
+        name: product?.name,
+        description: product?.description,
+        sku: product?.sku,
+        barcode: product?.barcode,
+        categoryId: product?.categoryId,
+        taxRateId: product?.taxRateId,
+        price: product?.price,
+        costPrice: product?.costPrice,
+        taxable: product?.taxable,
+        imageUrl: product?.imageUrl,
+        stock: product?.stock,
+        lowStockAlert: product?.lowStockAlert,
+        unit: product?.unit,
+        variants: product?.variants,
+        active: product?.active,
+        controlled: product?.controlled,
+        kitchenStationId: product?.kitchenStationId,
+      }
+      const res = await apiRequest(`/api/products${workspace}`, {
+        method: 'POST',
+        body: payload,
+        token,
+      })
+      const saved = res?.data || product
+      dispatch({ type: 'ADD_PRODUCT', product: saved })
+      return saved
+    },
+    [tenantId, currentUser?.token],
+  )
 
-  const updateProduct = useCallback((product) => {
-    dispatch({ type: 'UPDATE_PRODUCT', product })
-  }, [])
+  const updateProduct = useCallback(
+    async (product) => {
+      const token = currentUser?.token || null
+      if (!tenantId || !token) {
+        dispatch({ type: 'UPDATE_PRODUCT', product })
+        return product
+      }
+      const id = product?.id
+      if (!id) throw new Error('Product ID is required for update.')
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      const payload = {
+        name: product?.name,
+        description: product?.description,
+        sku: product?.sku,
+        barcode: product?.barcode,
+        categoryId: product?.categoryId,
+        taxRateId: product?.taxRateId,
+        price: product?.price,
+        costPrice: product?.costPrice,
+        taxable: product?.taxable,
+        imageUrl: product?.imageUrl,
+        stock: product?.stock,
+        lowStockAlert: product?.lowStockAlert,
+        unit: product?.unit,
+        variants: product?.variants,
+        active: product?.active,
+        controlled: product?.controlled,
+        kitchenStationId: product?.kitchenStationId,
+      }
+      const res = await apiRequest(`/api/products/${encodeURIComponent(id)}${workspace}`, {
+        method: 'PUT',
+        body: payload,
+        token,
+      })
+      const saved = res?.data || product
+      dispatch({ type: 'UPDATE_PRODUCT', product: saved })
+      return saved
+    },
+    [tenantId, currentUser?.token],
+  )
 
-  const deleteProduct = useCallback((id) => {
-    dispatch({ type: 'DELETE_PRODUCT', id })
-  }, [])
+  const deleteProduct = useCallback(
+    async (id) => {
+      const token = currentUser?.token || null
+      if (!tenantId || !token) {
+        dispatch({ type: 'DELETE_PRODUCT', id })
+        return
+      }
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      await apiRequest(`/api/products/${encodeURIComponent(id)}${workspace}`, {
+        method: 'DELETE',
+        token,
+      })
+      dispatch({ type: 'DELETE_PRODUCT', id })
+    },
+    [tenantId, currentUser?.token],
+  )
 
-  const addCategory = useCallback((category) => {
-    dispatch({ type: 'ADD_CATEGORY', category })
-  }, [])
+  const addCategory = useCallback(
+    async (category) => {
+      const token = currentUser?.token || null
+      if (!tenantId || !token) {
+        dispatch({ type: 'ADD_CATEGORY', category })
+        return category
+      }
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      const res = await apiRequest(`/api/categories${workspace}`, {
+        method: 'POST',
+        body: {
+          name: category?.name,
+          color: category?.color,
+          icon: category?.icon,
+          sortOrder: category?.sortOrder,
+        },
+        token,
+      })
+      const saved = res?.data || category
+      dispatch({ type: 'ADD_CATEGORY', category: saved })
+      return saved
+    },
+    [tenantId, currentUser?.token],
+  )
 
-  const updateCategory = useCallback((category) => {
-    dispatch({ type: 'UPDATE_CATEGORY', category })
-  }, [])
+  const updateCategory = useCallback(
+    async (category) => {
+      const token = currentUser?.token || null
+      if (!tenantId || !token) {
+        dispatch({ type: 'UPDATE_CATEGORY', category })
+        return category
+      }
+      const id = category?.id
+      if (!id) throw new Error('Category ID is required for update.')
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      const res = await apiRequest(`/api/categories/${encodeURIComponent(id)}${workspace}`, {
+        method: 'PUT',
+        body: {
+          name: category?.name,
+          color: category?.color,
+          icon: category?.icon,
+          sortOrder: category?.sortOrder,
+        },
+        token,
+      })
+      const saved = res?.data || category
+      dispatch({ type: 'UPDATE_CATEGORY', category: saved })
+      return saved
+    },
+    [tenantId, currentUser?.token],
+  )
 
-  const deleteCategory = useCallback((id) => {
-    dispatch({ type: 'DELETE_CATEGORY', id })
-  }, [])
+  const deleteCategory = useCallback(
+    async (id) => {
+      const token = currentUser?.token || null
+      if (!tenantId || !token) {
+        dispatch({ type: 'DELETE_CATEGORY', id })
+        return
+      }
+      const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+      await apiRequest(`/api/categories/${encodeURIComponent(id)}${workspace}`, {
+        method: 'DELETE',
+        token,
+      })
+      dispatch({ type: 'DELETE_CATEGORY', id })
+    },
+    [tenantId, currentUser?.token],
+  )
 
-  const reloadFromStorage = useCallback(() => {
-    if (!tenantId) return
-    dispatch({
-      type: 'HYDRATE',
-      products: getJSON(tenantId, PRODUCTS_KEY, []),
-      categories: getJSON(tenantId, CATEGORIES_KEY, []),
-    })
-  }, [tenantId])
+  const reloadFromStorage = useCallback(() => loadCatalog(), [loadCatalog])
 
   const value = useMemo(
     () => ({

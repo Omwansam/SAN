@@ -13,6 +13,15 @@ const authRouter = require('./routes/auth.routes');
 const userRouter = require('./routes/user.routes');
 const onboardingRouter = require('./routes/onboarding.routes');
 const branchRouter = require('./routes/branches.routes');
+const categoryRouter = require('./routes/categories.routes');
+const productRouter = require('./routes/products.routes');
+const customerRouter = require('./routes/customers.routes');
+const stockRouter = require('./routes/stock.routes');
+const inventoryRouter = require('./routes/inventory.routes');
+const taxRateRouter = require('./routes/taxrates.routes');
+const supplierRouter = require('./routes/suppliers.routes');
+const shiftRouter = require('./routes/shifts.routes');
+const reportRouter = require('./routes/reports.routes');
 
 const app = express();
 const port = config.PORT || 5000;
@@ -52,6 +61,15 @@ app.use('/api/auth', authRouter);
 app.use('/api/users', userRouter);
 app.use('/api/onboarding', onboardingRouter);
 app.use('/api/branches', branchRouter);
+app.use('/api/categories', categoryRouter);
+app.use('/api/products', productRouter);
+app.use('/api/customers', customerRouter);
+app.use('/api/stock', stockRouter);
+app.use('/api/inventory', inventoryRouter);
+app.use('/api/taxrates', taxRateRouter);
+app.use('/api/suppliers', supplierRouter);
+app.use('/api/shifts', shiftRouter);
+app.use('/api/reports', reportRouter);
 
 app.use(errorHandler);
 

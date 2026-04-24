@@ -1,20 +1,39 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { jsPDF } from 'jspdf'
 import Papa from 'papaparse'
 import toast from 'react-hot-toast'
 import { Navigate } from 'react-router-dom'
 import { Button } from '../components/shared/Button'
 import { EmptyState } from '../components/shared/EmptyState'
+import { apiRequest } from '../utils/api'
 import { useAuth } from '../hooks/useAuth'
+import { useBranch } from '../hooks/useBranch'
 import { useOrders } from '../hooks/useOrders'
 import { useTenant } from '../hooks/useTenant'
 
 export default function ReportsExport() {
-  const { tenantConfig } = useTenant()
-  const { can } = useAuth()
+  const { tenantId, tenantConfig } = useTenant()
+  const { can, currentUser } = useAuth()
+  const { activeBranchId } = useBranch()
   const { orders } = useOrders()
+  const [apiOrders, setApiOrders] = useState(null)
 
-  const csv = useMemo(() => Papa.unparse(orders), [orders])
+  useEffect(() => {
+    if (!tenantId || !currentUser?.token) return
+    const now = new Date().toISOString()
+    const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const branch = activeBranchId ? `&branchId=${encodeURIComponent(activeBranchId)}` : ''
+    apiRequest(
+      `/api/reports/sales?workspace=${encodeURIComponent(tenantId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(now)}${branch}`,
+      { token: currentUser.token },
+    )
+      .then((res) => setApiOrders(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => {})
+  }, [tenantId, currentUser?.token, activeBranchId])
+
+  const sourceOrders = apiOrders ?? orders
+
+  const csv = useMemo(() => Papa.unparse(sourceOrders), [sourceOrders])
 
   if (!tenantConfig) return null
   if (!can('export')) return <Navigate to="/reports" replace />
@@ -38,7 +57,7 @@ export default function ReportsExport() {
     doc.text('Orders export', margin, y)
     y += 28
     doc.setFontSize(9)
-    const rows = orders.slice(0, 80)
+    const rows = sourceOrders.slice(0, 80)
     for (const o of rows) {
       const line = `${(o.id ?? '').slice(0, 12)}…  ${o.status ?? ''}  total ${o.total ?? 0}  ${(o.createdAt ?? '').slice(0, 10)}`
       doc.text(line, margin, y)
@@ -57,7 +76,7 @@ export default function ReportsExport() {
       <h1 className="mb-4 text-2xl font-semibold text-gray-900 dark:text-gray-100">
         Export
       </h1>
-      {orders.length === 0 ? (
+      {sourceOrders.length === 0 ? (
         <EmptyState title="No orders to export" />
       ) : (
         <div className="flex flex-wrap gap-3">

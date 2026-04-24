@@ -45,6 +45,7 @@ import {
 } from '../utils/posTotals'
 import { formatCurrency } from '../utils/currency'
 import { validateRxCartLines } from '../utils/rxValidation'
+import { apiRequest } from '../utils/api'
 import { appendStockLog } from '../utils/stockLog'
 import { postCustomerDisplayMessage } from '../utils/customerDisplayChannel'
 import { getJSON, setJSON } from '../utils/storage'
@@ -483,18 +484,34 @@ export default function POS() {
           const pr = products.find((x) => x.id === it.productId)
           if (pr) {
             const nextStock = Math.max(0, (pr.stock ?? 0) - it.qty)
-            updateProduct({
+            void updateProduct({
               ...pr,
               stock: nextStock,
-            })
-            appendStockLog(tenantId, {
-              branchId: activeBranchId,
-              productId: pr.id,
-              productName: pr.name,
-              delta: -it.qty,
-              reason: 'sale',
-              userId: currentUser.id,
-            })
+            }).catch(() => {})
+            if (currentUser?.token) {
+              const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+              apiRequest(`/api/stock${workspace}`, {
+                method: 'POST',
+                token: currentUser.token,
+                body: {
+                  branchId: activeBranchId,
+                  productId: pr.id,
+                  productName: pr.name,
+                  delta: -it.qty,
+                  reason: 'sale',
+                  userId: currentUser.id,
+                },
+              }).catch(() => {})
+            } else {
+              appendStockLog(tenantId, {
+                branchId: activeBranchId,
+                productId: pr.id,
+                productName: pr.name,
+                delta: -it.qty,
+                reason: 'sale',
+                userId: currentUser.id,
+              })
+            }
           }
         }
       }
@@ -503,11 +520,11 @@ export default function POS() {
         const c = customers.find((x) => x.id === activeCustomer.id)
         if (c) {
           const spendBase = t.total
-          updateCustomer({
+          void updateCustomer({
             ...c,
             loyaltyPoints: (c.loyaltyPoints ?? 0) + Math.floor(spendBase / 100),
             totalSpend: (c.totalSpend ?? 0) + spendBase,
-          })
+          }).catch(() => {})
         }
       }
 
@@ -639,7 +656,7 @@ export default function POS() {
           createdAt: new Date().toISOString(),
           tags: [],
         }
-        addCustomer(nc)
+        void addCustomer(nc).catch(() => {})
         setActiveCustomer(nc)
       } else {
         setActiveCustomer(c)
@@ -983,6 +1000,7 @@ export default function POS() {
         open={mgrOpen}
         onOpenChange={setMgrOpen}
         tenantId={tenantId}
+        token={currentUser?.token}
         onApproved={() => {
           mgrOkRef.current = true
           setMgrOpen(false)

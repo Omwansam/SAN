@@ -156,6 +156,12 @@ model Tenant {
   draftCarts                  DraftCart[]
   emailVerificationChallenges EmailVerificationChallenge[]
   onboardingDrafts            OnboardingDraft[]
+  taxRates                    TaxRate[]
+  discounts                   Discount[]
+  shifts                      Shift[]
+  suppliers                   Supplier[]
+  purchaseOrders              PurchaseOrder[]
+  inventoryTransactions       InventoryTransaction[]
 }
 
 // TENANT DOMAIN TABLE
@@ -246,6 +252,8 @@ model User {
   stockLogs               StockLog[]
   authSessions            AuthSession[]
   onboardingDraftsCreated OnboardingDraft[] @relation("OnboardingCreatedAdmin")
+  shifts                  Shift[]
+  inventoryTransactions   InventoryTransaction[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -274,6 +282,9 @@ model Branch {
   heldCarts      HeldCart[]
   runtimeStates  TenantRuntimeState[]
   draftCarts     DraftCart[]
+  shifts         Shift[]
+  purchaseOrders PurchaseOrder[]
+  inventoryTransactions InventoryTransaction[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -338,6 +349,7 @@ model Product {
   id               String   @id @default(cuid())
   tenantId         String
   categoryId       String?
+  taxRateId        String?
   name             String
   description      String?
   sku              String?
@@ -358,14 +370,18 @@ model Product {
 
   tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   category   Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  taxRate    TaxRate?        @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
   orderItems OrderItem[]
   stockLogs  StockLog[]
   draftLines DraftCartLine[]
+  purchaseOrderItems PurchaseOrderItem[]
+  inventoryTransactions InventoryTransaction[]
 
   @@unique([tenantId, sku])
   @@unique([tenantId, barcode])
   @@index([tenantId])
   @@index([categoryId])
+  @@index([taxRateId])
 }
 
 //////////////////////////////////////////////////////
@@ -404,6 +420,8 @@ model Order {
   registerId        String?
   cashierId         String?
   customerId        String?
+  shiftId           String?
+  discountId        String?
   customerName      String?
   status            OrderStatus   @default(completed)
   paymentStatus     PaymentStatus @default(paid)
@@ -431,6 +449,8 @@ model Order {
   register      Register?      @relation(fields: [registerId], references: [id], onDelete: SetNull)
   cashier       User?          @relation("CashierOrders", fields: [cashierId], references: [id], onDelete: SetNull)
   customer      Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  shift         Shift?         @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  discount      Discount?      @relation(fields: [discountId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   payments      Payment[]
   kitchenTicket KitchenTicket?
@@ -442,6 +462,8 @@ model Order {
   @@index([registerId])
   @@index([cashierId])
   @@index([customerId])
+  @@index([shiftId])
+  @@index([discountId])
 }
 
 // ORDER ITEM TABLE
@@ -869,4 +891,161 @@ model OnboardingDraft {
   @@index([workspaceSlug])
   @@index([tenantId])
   @@index([createdAdminUserId])
+}
+
+//////////////////////////////////////////////////////
+// ADDITIONAL TABLES (FROM PROPOSED EXPANSION)
+// Added without modifying existing migrated models.
+//////////////////////////////////////////////////////
+
+model TaxRate {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  rate        Decimal  @db.Decimal(5, 2)
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products Product[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model Discount {
+  id            String       @id @default(cuid())
+  tenantId      String
+  name          String
+  code          String?
+  type          DiscountType @default(none)
+  value         Decimal      @db.Decimal(10, 2)
+  startDate     DateTime?
+  endDate       DateTime?
+  isActive      Boolean      @default(true)
+  minOrderValue Decimal?     @db.Decimal(10, 2)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+}
+
+model Shift {
+  id              String         @id @default(cuid())
+  tenantId        String
+  branchId        String
+  userId          String
+  openingTime     DateTime       @default(now())
+  closingTime     DateTime?
+  openingBalance  Decimal        @default(0) @db.Decimal(10, 2)
+  closingBalance  Decimal?       @db.Decimal(10, 2)
+  expectedBalance Decimal?       @db.Decimal(10, 2)
+  status          RegisterStatus @default(open)
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@index([tenantId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, userId])
+  @@index([tenantId, status])
+}
+
+model Supplier {
+  id            String   @id @default(cuid())
+  tenantId      String
+  name          String
+  contactPerson String?
+  email         String?
+  phoneNumber   String?
+  address       String?
+  taxId         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([tenantId, email])
+  @@unique([tenantId, phoneNumber])
+  @@index([tenantId])
+  @@index([tenantId, isActive])
+}
+
+model PurchaseOrder {
+  id                   String   @id @default(cuid())
+  tenantId             String
+  supplierId           String
+  branchId             String
+  status               String   @default("pending")
+  totalAmount          Decimal  @default(0) @db.Decimal(10, 2)
+  orderDate            DateTime @default(now())
+  expectedDeliveryDate DateTime?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  items    PurchaseOrderItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, supplierId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, status])
+}
+
+model PurchaseOrderItem {
+  id              String  @id @default(cuid())
+  tenantId        String
+  purchaseOrderId String
+  productId       String
+  quantity        Int
+  unitCost        Decimal @db.Decimal(10, 2)
+  totalCost       Decimal @db.Decimal(10, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, purchaseOrderId])
+  @@index([tenantId, productId])
+}
+
+model InventoryTransaction {
+  id          String   @id @default(cuid())
+  tenantId    String
+  productId   String
+  branchId    String
+  userId      String
+  type        String
+  quantity    Int
+  referenceId String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
+  @@index([tenantId, productId])
+  @@index([tenantId, branchId])
+  @@index([tenantId, userId])
+  @@index([tenantId, type])
 }

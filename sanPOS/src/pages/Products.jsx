@@ -7,14 +7,14 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { EmptyState } from '../components/shared/EmptyState'
 import { Input } from '../components/shared/Input'
 import { Modal } from '../components/shared/Modal'
+import { apiRequest } from '../utils/api'
 import { useAuth } from '../hooks/useAuth'
 import { useProducts } from '../hooks/useProducts'
 import { useTenant } from '../hooks/useTenant'
-import { newId } from '../utils/uuid'
 
 export default function Products() {
   const { tenantId, tenantConfig } = useTenant()
-  const { can } = useAuth()
+  const { can, currentUser } = useAuth()
   const { products, categories, addProduct, updateProduct, deleteProduct } =
     useProducts()
   const location = useLocation()
@@ -22,6 +22,7 @@ export default function Products() {
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [del, setDel] = useState(null)
+  const [taxRates, setTaxRates] = useState([])
   const stations = useMemo(
     () => tenantConfig?.kitchenStations ?? [],
     [tenantConfig],
@@ -36,6 +37,7 @@ export default function Products() {
     stock: '0',
     imageUrl: '',
     kitchenStationId: '',
+    taxRateId: '',
     controlled: false,
   })
 
@@ -50,6 +52,7 @@ export default function Products() {
         stock: overrides.stock ?? '0',
         imageUrl: overrides.imageUrl ?? '',
         kitchenStationId: overrides.kitchenStationId ?? stations[0]?.id ?? '',
+        taxRateId: overrides.taxRateId ?? '',
         controlled: overrides.controlled ?? false,
       })
       setEditing(null)
@@ -73,24 +76,25 @@ export default function Products() {
       stock: String(p.stock ?? 0),
       imageUrl: p.imageUrl ?? '',
       kitchenStationId: p.kitchenStationId ?? stations[0]?.id ?? '',
+      taxRateId: p.taxRateId ?? '',
       controlled: Boolean(p.controlled),
     })
     setOpen(true)
   }
 
-  const save = () => {
+  const save = async () => {
     if (!form.name.trim()) {
       toast.error('Name required')
       return
     }
     const payload = {
-      id: editing?.id ?? newId(),
-      tenantId,
+      id: editing?.id,
       name: form.name.trim(),
       description: editing?.description ?? '',
       sku: form.sku.trim(),
       barcode: form.barcode.trim(),
       categoryId: form.categoryId || categories[0]?.id,
+      taxRateId: form.taxRateId || null,
       price: Number(form.price) || 0,
       costPrice: editing?.costPrice ?? 0,
       taxable: editing?.taxable !== false,
@@ -105,11 +109,15 @@ export default function Products() {
       controlled:
         tenantConfig?.modules?.prescriptions && Boolean(form.controlled),
     }
-    if (editing) updateProduct(payload)
-    else addProduct(payload)
-    toast.success('Saved')
-    setOpen(false)
-    reset()
+    try {
+      if (editing) await updateProduct(payload)
+      else await addProduct(payload)
+      toast.success('Saved')
+      setOpen(false)
+      reset()
+    } catch (error) {
+      toast.error(error.message || 'Failed to save product')
+    }
   }
 
   const onImage = (e) => {
@@ -125,6 +133,14 @@ export default function Products() {
     () => [...products].sort((a, b) => a.name.localeCompare(b.name)),
     [products],
   )
+
+  useEffect(() => {
+    if (!tenantId || !currentUser?.token) return
+    const workspace = `?workspace=${encodeURIComponent(tenantId)}&active=true`
+    apiRequest(`/api/taxrates${workspace}`, { token: currentUser.token })
+      .then((res) => setTaxRates(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => {})
+  }, [tenantId, currentUser?.token])
 
   useEffect(() => {
     const raw = location.state?.prefillBarcode
@@ -231,6 +247,23 @@ export default function Products() {
             autoComplete="off"
           />
           <Input label="Price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
+          {taxRates.length ? (
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Tax rate
+              <select
+                className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-800"
+                value={form.taxRateId || ''}
+                onChange={(e) => setForm({ ...form, taxRateId: e.target.value })}
+              >
+                <option value="">Default workspace tax</option>
+                {taxRates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.rate}%)
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Category
             <select
@@ -307,10 +340,15 @@ export default function Products() {
         description="This cannot be undone."
         confirmLabel="Delete"
         danger
-        onConfirm={() => {
-          if (del) deleteProduct(del)
-          toast.success('Deleted')
-          setDel(null)
+        onConfirm={async () => {
+          if (!del) return
+          try {
+            await deleteProduct(del)
+            toast.success('Deleted')
+            setDel(null)
+          } catch (error) {
+            toast.error(error.message || 'Failed to delete product')
+          }
         }}
       />
     </div>

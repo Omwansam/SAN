@@ -5,18 +5,32 @@ import { EmptyState } from '../components/shared/EmptyState'
 import { useAuth } from '../hooks/useAuth'
 import { useBranch } from '../hooks/useBranch'
 import { useTenant } from '../hooks/useTenant'
+import { apiRequest } from '../utils/api'
 import { getStockLogs } from '../utils/stockLog'
 
 export default function InventoryLogs() {
   const { tenantId, tenantConfig } = useTenant()
-  const { can } = useAuth()
+  const { can, currentUser } = useAuth()
   const { activeBranchId } = useBranch()
   const [logs, setLogs] = useState([])
 
   useEffect(() => {
     if (!tenantId) return
-    queueMicrotask(() => setLogs(getStockLogs(tenantId)))
-  }, [tenantId])
+    const token = currentUser?.token || null
+    if (!token) {
+      queueMicrotask(() => setLogs(getStockLogs(tenantId)))
+      return
+    }
+    const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+    const branch = activeBranchId
+      ? `&branchId=${encodeURIComponent(activeBranchId)}`
+      : ''
+    apiRequest(`/api/stock${workspace}${branch}`, { token })
+      .then((res) => setLogs(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => {
+        queueMicrotask(() => setLogs(getStockLogs(tenantId)))
+      })
+  }, [tenantId, currentUser?.token, activeBranchId])
 
   const filtered = useMemo(
     () =>

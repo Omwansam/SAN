@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import toast from 'react-hot-toast'
 import { Navigate } from 'react-router-dom'
 import { Button } from '../components/shared/Button'
@@ -23,12 +23,9 @@ export default function SettingsBranches() {
   const [deleteId, setDeleteId] = useState(null)
   const [loading, setLoading] = useState(false)
 
-  if (!tenantConfig) return null
-  if (!can('settings')) return <Navigate to="/settings" replace />
-
   const workspaceQuery = tenantId ? `?workspace=${encodeURIComponent(tenantId)}` : ''
 
-  async function reloadData() {
+  const reloadData = useCallback(async () => {
     if (!tenantId || !currentUser?.token) return
     const [branchesRes, usersRes] = await Promise.all([
       apiRequest(`/api/branches${workspaceQuery}`, { token: currentUser.token }),
@@ -37,7 +34,7 @@ export default function SettingsBranches() {
     setBranches(Array.isArray(branchesRes?.data) ? branchesRes.data : [])
     setUsers(Array.isArray(usersRes?.data) ? usersRes.data : [])
     refreshBranches()
-  }
+  }, [tenantId, currentUser?.token, workspaceQuery, refreshBranches])
 
   useEffect(() => {
     if (!tenantId || !currentUser?.token) return
@@ -56,7 +53,10 @@ export default function SettingsBranches() {
     return () => {
       mounted = false
     }
-  }, [tenantId, currentUser?.token])
+  }, [tenantId, currentUser?.token, reloadData])
+
+  if (!tenantConfig) return null
+  if (!can('settings')) return <Navigate to="/settings" replace />
 
   async function saveBranch() {
     if (!form.name.trim()) {

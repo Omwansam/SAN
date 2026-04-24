@@ -4,16 +4,40 @@ import { Button } from '../shared/Button'
 import { Input } from '../shared/Input'
 import { Modal } from '../shared/Modal'
 import { getJSON } from '../../utils/storage'
+import { apiRequest } from '../../utils/api'
 
 const MANAGER_ROLES = new Set(['manager', 'admin', 'superadmin'])
 
-export function ManagerPinModal({ open, onOpenChange, tenantId, onApproved }) {
+export function ManagerPinModal({ open, onOpenChange, tenantId, token, onApproved }) {
   const [pin, setPin] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
-  function submit() {
-    const p = pin.trim()
+  async function submit() {
+    const p = pin.replace(/\D/g, '').trim() || pin.trim()
     if (!p || !tenantId) {
       toast.error('Enter a manager PIN.')
+      return
+    }
+    if (token) {
+      setSubmitting(true)
+      try {
+        const res = await apiRequest(
+          `/api/auth/verify-manager-pin?workspace=${encodeURIComponent(tenantId)}`,
+          { method: 'POST', body: { pin: p }, token },
+        )
+        const data = res?.data
+        if (!data?.id) {
+          toast.error('PIN did not match an active manager or admin.')
+          return
+        }
+        setPin('')
+        onOpenChange(false)
+        onApproved({ id: data.id, name: data.name })
+      } catch (e) {
+        toast.error(e?.message || 'PIN did not match an active manager or admin.')
+      } finally {
+        setSubmitting(false)
+      }
       return
     }
     const users = getJSON(tenantId, 'users', [])
@@ -47,8 +71,8 @@ export function ManagerPinModal({ open, onOpenChange, tenantId, onApproved }) {
           <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="button" onClick={submit}>
-            Approve
+          <Button type="button" onClick={submit} disabled={submitting}>
+            {submitting ? 'Checking…' : 'Approve'}
           </Button>
         </>
       }

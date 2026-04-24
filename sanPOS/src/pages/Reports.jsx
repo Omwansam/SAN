@@ -25,9 +25,11 @@ import toast from 'react-hot-toast'
 import { Navigate } from 'react-router-dom'
 import { Button } from '../components/shared/Button'
 import { EmptyState } from '../components/shared/EmptyState'
+import { apiRequest } from '../utils/api'
 import { formatCurrency } from '../utils/currency'
 import { getJSON, setJSON } from '../utils/storage'
 import { useAuth } from '../hooks/useAuth'
+import { useBranch } from '../hooks/useBranch'
 import { useOrders } from '../hooks/useOrders'
 import { useProducts } from '../hooks/useProducts'
 import { useTenant } from '../hooks/useTenant'
@@ -39,7 +41,8 @@ const CHART_PX = 256
 
 export default function Reports() {
   const { tenantId, tenantConfig } = useTenant()
-  const { can } = useAuth()
+  const { can, currentUser } = useAuth()
+  const { activeBranchId } = useBranch()
   const { orders } = useOrders()
   const { products, categories } = useProducts()
   const [closed, setClosed] = useState(() =>
@@ -47,6 +50,10 @@ export default function Reports() {
   )
   const [range, setRange] = useState('month')
   const [dispensing, setDispensing] = useState([])
+  const [apiSales, setApiSales] = useState(null)
+  const [apiSummary, setApiSummary] = useState(null)
+  const [activeShift, setActiveShift] = useState(null)
+  const [extraCounts, setExtraCounts] = useState({ taxRates: null, suppliers: null })
 
   const rangeStart = useMemo(() => {
     const now = new Date()
@@ -55,14 +62,16 @@ export default function Reports() {
     return startOfMonth(now)
   }, [range])
 
+  const sourceOrders = apiSales ?? orders
+
   const ordersInRange = useMemo(
     () =>
-      orders.filter(
+      sourceOrders.filter(
         (o) =>
           o.status === 'completed' &&
           startOfDay(new Date(o.createdAt)) >= rangeStart,
       ),
-    [orders, rangeStart],
+    [sourceOrders, rangeStart],
   )
 
   useEffect(() => {
@@ -70,16 +79,44 @@ export default function Reports() {
     queueMicrotask(() => setDispensing(getJSON(tenantId, 'dispensingLog', [])))
   }, [tenantId, orders.length])
 
+  useEffect(() => {
+    if (!tenantId || !currentUser?.token) return
+    const now = new Date()
+    const from = rangeStart.toISOString()
+    const to = now.toISOString()
+    const base = `workspace=${encodeURIComponent(tenantId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+    const branch = activeBranchId ? `&branchId=${encodeURIComponent(activeBranchId)}` : ''
+    Promise.all([
+      apiRequest(`/api/reports/sales?${base}${branch}`, { token: currentUser.token }),
+      apiRequest(`/api/reports/summary?${base}${branch}`, { token: currentUser.token }),
+      apiRequest(`/api/shifts/active?workspace=${encodeURIComponent(tenantId)}${branch}`, { token: currentUser.token }),
+      apiRequest(`/api/taxrates?workspace=${encodeURIComponent(tenantId)}&active=true`, { token: currentUser.token }),
+      apiRequest(`/api/suppliers?workspace=${encodeURIComponent(tenantId)}&active=true`, { token: currentUser.token }),
+    ])
+      .then(([salesRes, summaryRes, shiftRes, taxRes, supplierRes]) => {
+        setApiSales(Array.isArray(salesRes?.data) ? salesRes.data : [])
+        setApiSummary(summaryRes?.data || null)
+        setActiveShift(shiftRes?.data || null)
+        setExtraCounts({
+          taxRates: Array.isArray(taxRes?.data) ? taxRes.data.length : 0,
+          suppliers: Array.isArray(supplierRes?.data) ? supplierRes.data.length : 0,
+        })
+      })
+      .catch(() => {
+        // keep local-storage-backed report rendering as fallback
+      })
+  }, [tenantId, currentUser?.token, rangeStart, activeBranchId])
+
   const today = startOfDay(new Date())
-  const todayOrders = orders.filter(
+  const todayOrders = sourceOrders.filter(
     (o) => o.status === 'completed' && startOfDay(new Date(o.createdAt)) >= today,
   )
-  const zRevenue = todayOrders.reduce((s, o) => s + (o.total || 0), 0)
-  const zTax = todayOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
+  const zRevenue = apiSummary?.sums?.total ?? todayOrders.reduce((s, o) => s + (o.total || 0), 0)
+  const zTax = apiSummary?.sums?.taxAmount ?? todayOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
   const summaryOrders = ordersInRange
-  const revenue = summaryOrders.reduce((s, o) => s + (o.total || 0), 0)
-  const tax = summaryOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
-  const refunds = orders.filter((o) => o.status === 'refunded').length
+  const revenue = apiSummary?.sums?.total ?? summaryOrders.reduce((s, o) => s + (o.total || 0), 0)
+  const tax = apiSummary?.sums?.taxAmount ?? summaryOrders.reduce((s, o) => s + (o.taxAmount || 0), 0)
+  const refunds = sourceOrders.filter((o) => o.status === 'refunded').length
 
   const lineData = useMemo(() => {
     const days = []
@@ -87,7 +124,7 @@ export default function Reports() {
     for (let i = span; i >= 0; i--) {
       const d = subDays(new Date(), i)
       const key = format(d, 'yyyy-MM-dd')
-      const sum = orders
+      const sum = sourceOrders
         .filter(
           (o) =>
             o.status === 'completed' &&
@@ -97,7 +134,7 @@ export default function Reports() {
       days.push({ date: format(d, 'MMM d'), total: sum })
     }
     return days
-  }, [orders, range])
+  }, [sourceOrders, range])
 
   const topProducts = useMemo(() => {
     const map = {}
@@ -158,11 +195,37 @@ export default function Reports() {
     return rev - cost
   }, [summaryOrders, products])
 
-  function closeShift() {
-    if (!tenantId) return
-    setJSON(tenantId, 'zReportClosed', true)
-    setClosed(true)
-    toast.success('Shift closed for reporting')
+  async function closeShift() {
+    if (!tenantId || !currentUser?.token) {
+      setJSON(tenantId, 'zReportClosed', true)
+      setClosed(true)
+      toast.success('Shift closed for reporting')
+      return
+    }
+    try {
+      const branch = activeBranchId ? `&branchId=${encodeURIComponent(activeBranchId)}` : ''
+      let shift = activeShift
+      if (!shift?.id) {
+        const activeRes = await apiRequest(
+          `/api/shifts/active?workspace=${encodeURIComponent(tenantId)}${branch}`,
+          { token: currentUser.token },
+        )
+        shift = activeRes?.data || null
+      }
+      if (!shift?.id) {
+        toast.error('No open shift to close.')
+        return
+      }
+      await apiRequest(
+        `/api/shifts/${encodeURIComponent(shift.id)}/close?workspace=${encodeURIComponent(tenantId)}`,
+        { method: 'POST', token: currentUser.token, body: { notes: 'Closed from Reports page' } },
+      )
+      setActiveShift(null)
+      setClosed(true)
+      toast.success('Shift closed')
+    } catch (error) {
+      toast.error(error.message || 'Failed to close shift')
+    }
   }
 
   if (!tenantConfig) return null
@@ -220,6 +283,14 @@ export default function Reports() {
           <p className="text-xl font-semibold">
             {formatCurrency(grossProfit, tenantConfig)}
           </p>
+        </div>
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-sm text-gray-500">Active tax rates</p>
+          <p className="text-xl font-semibold">{extraCounts.taxRates ?? '—'}</p>
+        </div>
+        <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
+          <p className="text-sm text-gray-500">Active suppliers</p>
+          <p className="text-xl font-semibold">{extraCounts.suppliers ?? '—'}</p>
         </div>
       </div>
 
@@ -357,6 +428,9 @@ export default function Reports() {
           <li>Refunds count: {refunds}</li>
           <li>Net revenue: {formatCurrency(zRevenue, tenantConfig)}</li>
           <li>Status: {closed ? 'Day locked' : 'Open'}</li>
+          {currentUser?.token ? (
+            <li>Shift: {activeShift ? `Open (${activeShift.user?.name ?? 'staff'})` : 'No active shift'}</li>
+          ) : null}
         </ul>
         {can('reports') && !closed ? (
           <Button type="button" className="mt-4" onClick={closeShift}>

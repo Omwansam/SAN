@@ -11,7 +11,7 @@ import { getJSON, setJSON } from '../../utils/storage'
 import { Avatar } from '../shared/Avatar'
 import { Button } from '../shared/Button'
 
-export function TopBar() {
+export function TopBar({ elevated = false }) {
   const { tenantId, tenantConfig } = useTenant()
   const { branches, activeBranchId, setActiveBranchId } = useBranch()
   const { products } = useProducts()
@@ -77,7 +77,11 @@ export function TopBar() {
   const registers = tenantId ? getJSON(tenantId, 'registers', []) : []
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-gray-200/80 bg-[var(--surface-elevated)]/95 px-4 shadow-sm backdrop-blur-md dark:border-gray-800/80 dark:bg-gray-900/95">
+    <header
+      className={`sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-gray-200/80 bg-[var(--surface-elevated)]/95 px-4 backdrop-blur-md transition-shadow duration-200 dark:border-gray-800/80 dark:bg-gray-900/95 ${
+        elevated ? 'shadow-sm' : 'shadow-none'
+      }`}
+    >
       <button
         type="button"
         className="rounded-xl p-2 text-gray-600 hover:bg-gray-100 md:hidden dark:hover:bg-gray-800"

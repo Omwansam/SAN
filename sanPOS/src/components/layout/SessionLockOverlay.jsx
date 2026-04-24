@@ -4,6 +4,7 @@ import { Input } from '../shared/Input'
 import { getJSON } from '../../utils/storage'
 import { useAuth } from '../../hooks/useAuth'
 import { useTenant } from '../../hooks/useTenant'
+import { apiRequest } from '../../utils/api'
 
 const IDLE_MS = 15 * 60 * 1000
 
@@ -13,6 +14,7 @@ export function SessionLockOverlay() {
   const [locked, setLocked] = useState(false)
   const [pin, setPin] = useState('')
   const [err, setErr] = useState('')
+  const [unlocking, setUnlocking] = useState(false)
   const lastRef = useRef(0)
 
   useEffect(() => {
@@ -36,11 +38,36 @@ export function SessionLockOverlay() {
     }
   }, [])
 
-  const unlock = useCallback(() => {
+  const unlock = useCallback(async () => {
     if (!tenantId || !currentUser) return
-    const p = pin.trim()
+    const p = pin.replace(/\D/g, '').trim() || pin.trim()
+    if (currentUser.hasPin === false) {
+      setLocked(false)
+      setPin('')
+      setErr('')
+      lastRef.current = Date.now()
+      return
+    }
     if (!p) {
       setErr('Enter your PIN.')
+      return
+    }
+    if (currentUser.token) {
+      setUnlocking(true)
+      setErr('')
+      try {
+        await apiRequest(
+          `/api/auth/verify-session-pin?workspace=${encodeURIComponent(tenantId)}`,
+          { method: 'POST', body: { pin: p }, token: currentUser.token },
+        )
+        setLocked(false)
+        setPin('')
+        lastRef.current = Date.now()
+      } catch (e) {
+        setErr(e?.message || 'PIN does not match your profile.')
+      } finally {
+        setUnlocking(false)
+      }
       return
     }
     const users = getJSON(tenantId, 'users', [])
@@ -82,8 +109,8 @@ export function SessionLockOverlay() {
           />
           {err ? <p className="text-sm text-red-600">{err}</p> : null}
         </div>
-        <Button type="button" className="mt-4 w-full" onClick={unlock}>
-          Unlock
+        <Button type="button" className="mt-4 w-full" onClick={unlock} disabled={unlocking}>
+          {unlocking ? 'Checking…' : 'Unlock'}
         </Button>
       </div>
     </div>

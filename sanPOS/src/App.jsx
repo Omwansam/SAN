@@ -37,6 +37,8 @@ const SettingsReceipt = lazy(() => import('./pages/SettingsReceipt'))
 const SettingsBackup = lazy(() => import('./pages/SettingsBackup'))
 const SettingsBilling = lazy(() => import('./pages/SettingsBilling'))
 const SettingsNotifications = lazy(() => import('./pages/SettingsNotifications'))
+const SettingsSuppliers = lazy(() => import('./pages/SettingsSuppliers'))
+const SettingsTaxRates = lazy(() => import('./pages/SettingsTaxRates'))
 const InventoryLogs = lazy(() => import('./pages/InventoryLogs'))
 const SuperAdmin = lazy(() => import('./pages/SuperAdmin'))
 
@@ -249,6 +251,22 @@ export default function App() {
                           element={
                             <Page>
                               <SettingsNotifications />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/suppliers"
+                          element={
+                            <Page>
+                              <SettingsSuppliers />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/tax-rates"
+                          element={
+                            <Page>
+                              <SettingsTaxRates />
                             </Page>
                           }
                         />
