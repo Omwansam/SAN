@@ -1,0 +1,2 @@
+-- Restored missing migration file.
+-- No-op migration to repair Prisma migration history integrity.

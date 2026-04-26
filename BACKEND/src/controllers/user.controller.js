@@ -10,7 +10,7 @@ function normalizePin(rawPin) {
 }
 
 const getProfile = async (req, res, next) => {
-  try {
+    try {
     const db = req.db || prisma;
     const user = await db.user.findFirst({
       where: { id: req.user.id, tenantId: req.tenant.id },
@@ -27,10 +27,10 @@ const getProfile = async (req, res, next) => {
         pin: true,
         createdAt: true,
       },
-    });
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
     return res.status(200).json({ success: true, data: { ...user, hasPin: Boolean(user.pin), pin: undefined } });
   } catch (error) {
     return next(error);
@@ -38,28 +38,28 @@ const getProfile = async (req, res, next) => {
 };
 
 const updateProfile = async (req, res, next) => {
-  try {
+    try {
     const db = req.db || prisma;
     const { name, firstName, lastName, phone } = req.body;
-    const data = {};
+        const data = {};
 
-    if (name !== undefined && name !== null) {
-      if (typeof name !== 'string' || !name.trim()) {
-        return res.status(400).json({ success: false, error: 'Name is required' });
-      }
-      data.name = name.trim();
-    }
+        if (name !== undefined && name !== null) {
+            if (typeof name !== 'string' || !name.trim()) {
+                return res.status(400).json({ success: false, error: 'Name is required' });
+            }
+            data.name = name.trim();
+        }
     if (firstName !== undefined) data.firstName = firstName ? String(firstName).trim() : null;
     if (lastName !== undefined) data.lastName = lastName ? String(lastName).trim() : null;
     if (phone !== undefined) data.phone = phone ? String(phone).trim() : null;
 
-    if (Object.keys(data).length === 0) {
-      return res.status(400).json({ success: false, error: 'No profile fields to update' });
-    }
+        if (Object.keys(data).length === 0) {
+            return res.status(400).json({ success: false, error: 'No profile fields to update' });
+        }
 
     const updatedUser = await db.user.update({
-      where: { id: req.user.id },
-      data,
+            where: { id: req.user.id },
+            data,
       select: {
         id: true,
         tenantId: true,
@@ -79,31 +79,31 @@ const updateProfile = async (req, res, next) => {
 };
 
 const changePassword = async (req, res, next) => {
-  try {
+    try {
     const db = req.db || prisma;
-    const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ success: false, error: 'Please provide both current and new passwords' });
-    }
-    if (typeof newPassword !== 'string' || newPassword.length < 6) {
-      return res.status(400).json({ success: false, error: 'New password must be at least 6 characters' });
-    }
-
+        const { currentPassword, newPassword } = req.body;
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, error: 'Please provide both current and new passwords' });
+        }
+        if (typeof newPassword !== 'string' || newPassword.length < 6) {
+            return res.status(400).json({ success: false, error: 'New password must be at least 6 characters' });
+        }
+        
     const user = await db.user.findFirst({
       where: { id: req.user.id, tenantId: req.tenant.id },
     });
-    if (!user) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
+        if (!user) {
+            return res.status(404).json({ success: false, error: 'User not found' });
+        }
 
     const isMatch = await bcrypt.compare(currentPassword, user.passwordHash || '');
-    if (!isMatch) {
-      return res.status(401).json({ success: false, error: 'Incorrect current password' });
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+        if (!isMatch) {
+            return res.status(401).json({ success: false, error: 'Incorrect current password' });
+        }
+        
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
     await db.user.update({
-      where: { id: user.id },
+            where: { id: user.id },
       data: { passwordHash: hashedPassword },
     });
 
@@ -115,7 +115,7 @@ const changePassword = async (req, res, next) => {
 
 // Admin handlers
 const getAllUsers = async (req, res, next) => {
-  try {
+    try {
     const db = req.db || prisma;
     const users = await db.user.findMany({
       where: { tenantId: req.tenant.id },
@@ -157,10 +157,10 @@ const getAllUsers = async (req, res, next) => {
 };
 
 const deleteUser = async (req, res, next) => {
-  try {
+    try {
     const db = req.db || prisma;
-    if (req.params.id === req.user.id) {
-      return res.status(400).json({ success: false, error: 'You cannot delete your own account' });
+        if (req.params.id === req.user.id) {
+            return res.status(400).json({ success: false, error: 'You cannot delete your own account' });
     }
     const target = await db.user.findFirst({
       where: { id: req.params.id, tenantId: req.tenant.id },

@@ -30,6 +30,12 @@ const TENANT_SCOPED_MODELS = new Set([
   'EmailVerificationChallenge',
   'AuthLoginAttempt',
   'TenantRuntimeState',
+  'TaxPayerProfile',
+  'EtimsConfig',
+  'KraDevice',
+  'FiscalDocument',
+  'FiscalDocumentLine',
+  'FiscalSyncJob',
 ]);
 
 function tenantError(message) {

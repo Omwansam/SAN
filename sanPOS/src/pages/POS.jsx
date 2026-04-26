@@ -70,7 +70,7 @@ export default function POS() {
   const { activeBranchId, activeBranch } = useBranch()
   const { currentUser, can } = useAuth()
   const { products, categories, updateProduct } = useProducts()
-  const { createOrder } = useOrders()
+  const { createOrder, reloadFromStorage: reloadOrders } = useOrders()
   const { customers, addCustomer, updateCustomer } = useCustomers()
   const { pushNotification } = useNotifications()
   const {
@@ -378,7 +378,7 @@ export default function POS() {
   )
 
   const completePay = useCallback(
-    ({ payments, change }) => {
+    async ({ payments, change }) => {
       if (!tenantId || !tenantConfig || !currentUser) return
       if (!payItems.length) {
         toast.error('Nothing to pay.')
@@ -450,34 +450,42 @@ export default function POS() {
             }
           : {}
 
-      const order = {
-        id: newId(),
+      const firstPayment = Array.isArray(payments) && payments.length > 0 ? payments[0] : null
+      const orderPayload = {
         tenantId,
         branchId: activeBranchId ?? undefined,
         registerId,
         cashierId: currentUser.id,
         customerId: activeCustomer?.id ?? null,
         customerName: activeCustomer?.name ?? undefined,
-        createdAt: new Date().toISOString(),
-        status: 'completed',
-        paymentStatus: 'paid',
         items: orderItems,
         subtotal: t.subtotal,
         taxAmount: t.taxAmount,
-        discountAmount: t.discountAmount,
         taxableBase: t.taxableBase,
-        total: t.total,
-        payments,
-        change: change ?? 0,
-        receiptPrinted: false,
         notes: '',
-        partial: Boolean(partialLineIds?.length),
-        tipsTotal: payTipsTotal > 0 ? payTipsTotal : 0,
-        deliveryFeeAmount: t.deliveryFeeAmount || 0,
+        ...(orderDiscount?.discountId ? { discountId: orderDiscount.discountId } : {}),
+        ...(orderDiscount?.discountCode ? { discountCode: orderDiscount.discountCode } : {}),
+        ...(firstPayment
+          ? {
+              payment: {
+                method: firstPayment.method || 'cash',
+                amount: Number(firstPayment.amount || t.total) || t.total,
+                paymentStatus: 'paid',
+                reference: firstPayment.reference || null,
+              },
+            }
+          : {}),
         ...restaurantService,
         ...deliveryPatch,
       }
-      createOrder(order)
+      let order = null
+      try {
+        order = await createOrder(orderPayload)
+        await reloadOrders()
+      } catch (error) {
+        toast.error(error.message || 'Failed to create order on backend.')
+        return
+      }
 
       if (tenantConfig.modules?.inventory) {
         for (const it of payItems) {
@@ -534,7 +542,7 @@ export default function POS() {
         const defaultStation = stations?.[0]?.id ?? 'hot'
         q.push({
           id: newId(),
-          orderId: order.id,
+          orderId: order?.id || newId(),
           branchId: activeBranchId ?? undefined,
           status: 'preparing',
           items: payItems.map((cartIt) => {
@@ -558,7 +566,7 @@ export default function POS() {
               stationId,
             }
           }),
-          createdAt: order.createdAt,
+          createdAt: order?.createdAt || new Date().toISOString(),
         })
         setJSON(tenantId, 'kitchenQueue', q)
       }
@@ -630,6 +638,7 @@ export default function POS() {
       products,
       customers,
       createOrder,
+      reloadOrders,
       updateProduct,
       updateCustomer,
       clearCart,
@@ -642,6 +651,48 @@ export default function POS() {
       deliveryMeta,
       pushNotification,
     ],
+  )
+
+  const validateDiscountCode = useCallback(
+    async (code) => {
+      if (!tenantId || !currentUser?.token) {
+        return { ok: false, error: 'Login required to validate discount code.' }
+      }
+      const subtotal = computeCartTotals(
+        items,
+        { type: 'none', value: 0 },
+        tenantConfig?.taxRate ?? 0,
+        deliveryFeeOpts,
+      ).subtotal
+
+      try {
+        const workspace = `?workspace=${encodeURIComponent(tenantId)}`
+        const response = await apiRequest(`/api/discounts/validate${workspace}`, {
+          method: 'POST',
+          token: currentUser.token,
+          body: {
+            code,
+            subtotal,
+            requireActive: true,
+          },
+        })
+        const payload = response?.data
+        if (!payload?.eligible) {
+          const reason = payload?.reasons?.[0] || 'Discount is not eligible for this cart.'
+          return { ok: false, error: reason }
+        }
+        applyDiscount({
+          type: payload.discount.type,
+          value: Number(payload.discount.value) || 0,
+          discountId: payload.discount.id,
+          discountCode: payload.discount.code || code,
+        })
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, error: error.message || 'Could not validate discount code.' }
+      }
+    },
+    [tenantId, currentUser?.token, items, tenantConfig?.taxRate, deliveryFeeOpts, applyDiscount],
   )
 
   const selectCustomer = useCallback(
@@ -767,6 +818,7 @@ export default function POS() {
     onSelectCustomer: selectCustomer,
     onClearCustomer: () => setActiveCustomer(null),
     onOrderDiscount: applyDiscount,
+    onValidateDiscountCode: validateDiscountCode,
     onQty: updateQty,
     onRemove: removeItem,
     onUpdateLine: updateLine,

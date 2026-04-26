@@ -115,6 +115,47 @@ enum OnboardingStatus {
   abandoned
 }
 
+/// Gateway transaction lifecycle for external processors (e.g. M-Pesa/Card gateway).
+enum GatewayTransactionStatus {
+  pending
+  success
+  failed
+  cancelled
+}
+
+/// eTIMS connection environment.
+enum EtimsEnvironment {
+  sandbox
+  production
+}
+
+/// Fiscal document type sent to KRA.
+enum FiscalDocumentType {
+  invoice
+  credit_note
+  debit_note
+}
+
+/// Submission lifecycle for fiscal documents.
+enum FiscalDocumentStatus {
+  pending
+  queued
+  submitted
+  accepted
+  rejected
+  failed
+}
+
+/// Async sync worker status for queued eTIMS jobs.
+enum FiscalSyncJobStatus {
+  pending
+  processing
+  retrying
+  completed
+  failed
+  dead_letter
+}
+
 //////////////////////////////////////////////////////
 // TENANCY CORE TABLES
 //////////////////////////////////////////////////////
@@ -144,6 +185,7 @@ model Tenant {
   products                    Product[]
   customers                   Customer[]
   orders                      Order[]
+  payments                    Payment[]
   stockLogs                   StockLog[]
   dispensing                  DispensingLog[]
   kitchenTickets              KitchenTicket[]
@@ -162,6 +204,14 @@ model Tenant {
   suppliers                   Supplier[]
   purchaseOrders              PurchaseOrder[]
   inventoryTransactions       InventoryTransaction[]
+  storedPaymentMethods        StoredPaymentMethod[]
+  paymentResponses            PaymentResponse[]
+  gatewayTransactions         GatewayTransaction[]
+  taxpayerProfile             TaxPayerProfile?
+  etimsConfigs                EtimsConfig[]
+  kraDevices                  KraDevice[]
+  fiscalDocuments             FiscalDocument[]
+  fiscalSyncJobs              FiscalSyncJob[]
 }
 
 // TENANT DOMAIN TABLE
@@ -254,6 +304,9 @@ model User {
   onboardingDraftsCreated OnboardingDraft[] @relation("OnboardingCreatedAdmin")
   shifts                  Shift[]
   inventoryTransactions   InventoryTransaction[]
+  payments                Payment[]
+  storedPaymentMethods    StoredPaymentMethod[]
+  gatewayTransactions     GatewayTransaction[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -285,6 +338,9 @@ model Branch {
   shifts         Shift[]
   purchaseOrders PurchaseOrder[]
   inventoryTransactions InventoryTransaction[]
+  etimsConfigs   EtimsConfig[]
+  kraDevices     KraDevice[]
+  fiscalDocuments FiscalDocument[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
@@ -453,6 +509,7 @@ model Order {
   discount      Discount?      @relation(fields: [discountId], references: [id], onDelete: SetNull)
   items         OrderItem[]
   payments      Payment[]
+  fiscalDocuments FiscalDocument[]
   kitchenTicket KitchenTicket?
   dispensing    DispensingLog?
 
@@ -501,15 +558,30 @@ model OrderItem {
 // PAYMENT TABLE
 model Payment {
   id        String        @id @default(cuid())
+  tenantId  String?
   orderId   String
+  userId    String?
+  storedPaymentMethodId String?
   method    PaymentMethod
   amount    Int
+  paymentStatus PaymentStatus @default(pending)
+  paymentDate DateTime      @default(now())
+  transactionId String?     @unique
   reference String?
   createdAt DateTime      @default(now())
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  tenant              Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  order               Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user                User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  storedPaymentMethod StoredPaymentMethod? @relation(fields: [storedPaymentMethodId], references: [id], onDelete: SetNull)
+  paymentResponses    PaymentResponse[]
+  gatewayTransactions GatewayTransaction[]
 
+  @@index([tenantId])
   @@index([orderId])
+  @@index([userId])
+  @@index([storedPaymentMethodId])
+  @@index([paymentStatus])
 }
 
 //////////////////////////////////////////////////////
@@ -1048,4 +1120,224 @@ model InventoryTransaction {
   @@index([tenantId, branchId])
   @@index([tenantId, userId])
   @@index([tenantId, type])
+}
+
+/// Tokenized payment instrument; never store PAN or CVV.
+model StoredPaymentMethod {
+  id             String        @id @default(cuid())
+  tenantId       String
+  userId         String
+  method         PaymentMethod
+  provider       String?
+  tokenRef       String?
+  cardBrand      String?
+  cardLast4      String?
+  expiryMonth    Int?
+  expiryYear     Int?
+  billingAddress Json?
+  isDefault      Boolean       @default(false)
+  active         Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments Payment[]
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, method])
+}
+
+model PaymentResponse {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  paymentId           String
+  responseCode        String?
+  responseDescription String?
+  merchantRequestId   String?
+  checkoutRequestId   String?
+  resultCode          String?
+  resultDescription   String?
+  rawCallback         Json?
+  createdAt           DateTime @default(now())
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([paymentId])
+  @@index([merchantRequestId])
+  @@index([checkoutRequestId])
+}
+
+model GatewayTransaction {
+  id                 String                   @id @default(cuid())
+  tenantId           String
+  paymentId          String
+  userId             String
+  transactionRef     String                   @unique
+  amount             Int
+  phoneNumber        String?
+  status             GatewayTransactionStatus @default(pending)
+  mpesaReceiptNumber String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([paymentId])
+  @@index([userId])
+  @@index([status])
+}
+
+/// Registered tax profile used for KRA submissions per tenant.
+model TaxPayerProfile {
+  id            String   @id @default(cuid())
+  tenantId      String   @unique
+  kraPin        String
+  legalName     String
+  vatRegistered Boolean  @default(true)
+  vatObligation String?
+  taxOffice     String?
+  contactEmail  String?
+  contactPhone  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+/// eTIMS API credentials/config per branch or tenant-wide.
+model EtimsConfig {
+  id              String           @id @default(cuid())
+  tenantId        String
+  branchId        String?
+  environment     EtimsEnvironment @default(sandbox)
+  endpointBaseUrl String?
+  apiKey          String?
+  apiSecret       String?
+  clientId        String?
+  certSerial      String?
+  certFingerprint String?
+  active          Boolean          @default(true)
+  readinessMode   Boolean          @default(true)
+  strictMode      Boolean          @default(false)
+  lastTestedAt    DateTime?
+  lastSyncAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, branchId])
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+/// Physical fiscal device/reference metadata for audit and support.
+model KraDevice {
+  id              String   @id @default(cuid())
+  tenantId        String
+  branchId        String?
+  deviceSerial    String
+  controlUnitId   String?
+  osVersion       String?
+  firmwareVersion String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, deviceSerial])
+  @@index([tenantId])
+  @@index([branchId])
+}
+
+/// Immutable fiscal document record linked to business order.
+model FiscalDocument {
+  id                   String               @id @default(cuid())
+  tenantId             String
+  branchId             String?
+  orderId              String?
+  docType              FiscalDocumentType
+  status               FiscalDocumentStatus @default(pending)
+  payloadHash          String?
+  requestPayload       Json?
+  responsePayload      Json?
+  errorMessage         String?
+  kraInvoiceNumber     String?
+  acknowledgementCode  String?
+  acknowledgementAt    DateTime?
+  submittedAt          DateTime?
+  acceptedAt           DateTime?
+  rejectedAt           DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  tenant Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  order  Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  lines  FiscalDocumentLine[]
+  jobs   FiscalSyncJob[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, docType])
+  @@index([orderId])
+  @@index([branchId])
+}
+
+/// Frozen line snapshot sent to KRA (kept for audit integrity).
+model FiscalDocumentLine {
+  id               String   @id @default(cuid())
+  fiscalDocumentId String
+  lineNo           Int
+  productId        String?
+  itemName         String
+  itemCode         String?
+  quantity         Int
+  unitPrice        Int
+  lineDiscount     Int      @default(0)
+  lineTax          Int      @default(0)
+  lineTotal        Int
+  taxRate          Float?
+  taxLabel         String?
+  rawLinePayload   Json?
+  createdAt        DateTime @default(now())
+
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([fiscalDocumentId])
+}
+
+/// Queue/retry jobs for asynchronous fiscal syncing.
+model FiscalSyncJob {
+  id                String            @id @default(cuid())
+  tenantId          String
+  fiscalDocumentId  String
+  status            FiscalSyncJobStatus @default(pending)
+  attempts          Int               @default(0)
+  maxAttempts       Int               @default(8)
+  nextRetryAt       DateTime?
+  lastAttemptAt     DateTime?
+  lastError         String?
+  lockToken         String?
+  lockedAt          DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fiscalDocument FiscalDocument @relation(fields: [fiscalDocumentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([fiscalDocumentId])
+  @@index([nextRetryAt])
 }

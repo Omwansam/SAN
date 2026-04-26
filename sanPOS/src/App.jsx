@@ -2,6 +2,8 @@ import { lazy, Suspense } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
+import { PlatformLayout } from './components/layout/PlatformLayout'
+import { PlatformProtectedRoute } from './components/layout/PlatformProtectedRoute'
 import { ProtectedRoute } from './components/layout/ProtectedRoute'
 import { Spinner } from './components/shared/Spinner'
 import { AuthProvider } from './contexts/AuthContext'
@@ -40,7 +42,25 @@ const SettingsNotifications = lazy(() => import('./pages/SettingsNotifications')
 const SettingsSuppliers = lazy(() => import('./pages/SettingsSuppliers'))
 const SettingsTaxRates = lazy(() => import('./pages/SettingsTaxRates'))
 const InventoryLogs = lazy(() => import('./pages/InventoryLogs'))
-const SuperAdmin = lazy(() => import('./pages/SuperAdmin'))
+const PlatformOverview = lazy(() => import('./pages/PlatformOverview'))
+const PlatformAnalytics = lazy(() => import('./pages/PlatformAnalytics'))
+const PlatformTenants = lazy(() => import('./pages/PlatformTenants'))
+const PlatformDesignSystem = lazy(() => import('./pages/PlatformDesignSystem'))
+const PlatformBilling = lazy(() => import('./pages/PlatformBilling'))
+const PlatformBroadcasts = lazy(() => import('./pages/PlatformBroadcasts'))
+const PlatformSecurity = lazy(() => import('./pages/PlatformSecurity'))
+const PlatformTenantDetail = lazy(() => import('./pages/PlatformTenantDetail'))
+const PlatformTenantUsers = lazy(() => import('./pages/PlatformTenantUsers'))
+const PlatformTenantOrders = lazy(() => import('./pages/PlatformTenantOrders'))
+const PlatformTenantPayments = lazy(() => import('./pages/PlatformTenantPayments'))
+const PlatformTenantDesign = lazy(() => import('./pages/PlatformTenantDesign'))
+const PlatformSubscriptions = lazy(() => import('./pages/PlatformSubscriptions'))
+const PlatformInvoices = lazy(() => import('./pages/PlatformInvoices'))
+const PlatformFeatureFlags = lazy(() => import('./pages/PlatformFeatureFlags'))
+const PlatformReleases = lazy(() => import('./pages/PlatformReleases'))
+const PlatformSupport = lazy(() => import('./pages/PlatformSupport'))
+const PlatformAudit = lazy(() => import('./pages/PlatformAudit'))
+const PlatformSettings = lazy(() => import('./pages/PlatformSettings'))
 
 function Page({ children }) {
   return <Suspense fallback={<Spinner label="Loading page" />}>{children}</Suspense>
@@ -92,6 +112,162 @@ export default function App() {
                             </Page>
                           }
                         />
+                        <Route element={<PlatformProtectedRoute />}>
+                          <Route element={<PlatformLayout />}>
+                            <Route
+                              path="/platform"
+                              element={
+                                <Page>
+                                  <PlatformOverview />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/tenants"
+                              element={
+                                <Page>
+                                  <PlatformTenants />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/analytics"
+                              element={
+                                <Page>
+                                  <PlatformAnalytics />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/design-system"
+                              element={
+                                <Page>
+                                  <PlatformDesignSystem />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/billing"
+                              element={
+                                <Page>
+                                  <PlatformBilling />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/subscriptions"
+                              element={
+                                <Page>
+                                  <PlatformSubscriptions />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/invoices"
+                              element={
+                                <Page>
+                                  <PlatformInvoices />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/feature-flags"
+                              element={
+                                <Page>
+                                  <PlatformFeatureFlags />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/releases"
+                              element={
+                                <Page>
+                                  <PlatformReleases />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/broadcasts"
+                              element={
+                                <Page>
+                                  <PlatformBroadcasts />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/security"
+                              element={
+                                <Page>
+                                  <PlatformSecurity />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/support"
+                              element={
+                                <Page>
+                                  <PlatformSupport />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/audit"
+                              element={
+                                <Page>
+                                  <PlatformAudit />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/settings"
+                              element={
+                                <Page>
+                                  <PlatformSettings />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/tenants/:tenantId"
+                              element={
+                                <Page>
+                                  <PlatformTenantDetail />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/tenants/:tenantId/users"
+                              element={
+                                <Page>
+                                  <PlatformTenantUsers />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/tenants/:tenantId/orders"
+                              element={
+                                <Page>
+                                  <PlatformTenantOrders />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/tenants/:tenantId/payments"
+                              element={
+                                <Page>
+                                  <PlatformTenantPayments />
+                                </Page>
+                              }
+                            />
+                            <Route
+                              path="/platform/tenants/:tenantId/design"
+                              element={
+                                <Page>
+                                  <PlatformTenantDesign />
+                                </Page>
+                              }
+                            />
+                          </Route>
+                        </Route>
                         <Route element={<ProtectedRoute />}>
                           <Route
                             path="/business-type"
@@ -278,14 +454,7 @@ export default function App() {
                             </Page>
                           }
                         />
-                            <Route
-                              path="/superadmin"
-                              element={
-                                <Page>
-                                  <SuperAdmin />
-                                </Page>
-                              }
-                            />
+                            <Route path="/superadmin" element={<Navigate to="/platform" replace />} />
                           </Route>
                           <Route
                             path="/customer-display"

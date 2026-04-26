@@ -1,20 +1,21 @@
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useReducer,
 } from 'react'
 import { getJSON, setJSON } from '../utils/storage'
 import { apiRequest } from '../utils/api'
-import { useAuth } from '../hooks/useAuth'
 import { useTenant } from './TenantContext'
+import { ProductContext } from './product-context.shared'
 
 const PRODUCTS_KEY = 'products'
 const CATEGORIES_KEY = 'categories'
 
-const ProductContext = createContext(null)
+function getSessionToken(tenantId) {
+  if (!tenantId) return null
+  return getJSON(tenantId, 'authSession', null)?.token || null
+}
 
 function productReducer(state, action) {
   switch (action.type) {
@@ -62,7 +63,6 @@ function productReducer(state, action) {
 
 export function ProductProvider({ children }) {
   const { tenantId } = useTenant()
-  const { currentUser } = useAuth()
   const [state, dispatch] = useReducer(productReducer, {
     products: [],
     categories: [],
@@ -73,7 +73,7 @@ export function ProductProvider({ children }) {
       dispatch({ type: 'HYDRATE', products: [], categories: [] })
       return
     }
-    const token = currentUser?.token || null
+    const token = getSessionToken(tenantId)
     if (!token) {
       dispatch({
         type: 'HYDRATE',
@@ -92,7 +92,7 @@ export function ProductProvider({ children }) {
       products: Array.isArray(productsRes?.data) ? productsRes.data : [],
       categories: Array.isArray(categoriesRes?.data) ? categoriesRes.data : [],
     })
-  }, [tenantId, currentUser?.token])
+  }, [tenantId])
 
   useEffect(() => {
     loadCatalog().catch(() => {
@@ -125,7 +125,7 @@ export function ProductProvider({ children }) {
 
   const addProduct = useCallback(
     async (product) => {
-      const token = currentUser?.token || null
+      const token = getSessionToken(tenantId)
       if (!tenantId || !token) {
         dispatch({ type: 'ADD_PRODUCT', product })
         return product
@@ -159,12 +159,12 @@ export function ProductProvider({ children }) {
       dispatch({ type: 'ADD_PRODUCT', product: saved })
       return saved
     },
-    [tenantId, currentUser?.token],
+    [tenantId],
   )
 
   const updateProduct = useCallback(
     async (product) => {
-      const token = currentUser?.token || null
+      const token = getSessionToken(tenantId)
       if (!tenantId || !token) {
         dispatch({ type: 'UPDATE_PRODUCT', product })
         return product
@@ -200,12 +200,12 @@ export function ProductProvider({ children }) {
       dispatch({ type: 'UPDATE_PRODUCT', product: saved })
       return saved
     },
-    [tenantId, currentUser?.token],
+    [tenantId],
   )
 
   const deleteProduct = useCallback(
     async (id) => {
-      const token = currentUser?.token || null
+      const token = getSessionToken(tenantId)
       if (!tenantId || !token) {
         dispatch({ type: 'DELETE_PRODUCT', id })
         return
@@ -217,12 +217,12 @@ export function ProductProvider({ children }) {
       })
       dispatch({ type: 'DELETE_PRODUCT', id })
     },
-    [tenantId, currentUser?.token],
+    [tenantId],
   )
 
   const addCategory = useCallback(
     async (category) => {
-      const token = currentUser?.token || null
+      const token = getSessionToken(tenantId)
       if (!tenantId || !token) {
         dispatch({ type: 'ADD_CATEGORY', category })
         return category
@@ -242,12 +242,12 @@ export function ProductProvider({ children }) {
       dispatch({ type: 'ADD_CATEGORY', category: saved })
       return saved
     },
-    [tenantId, currentUser?.token],
+    [tenantId],
   )
 
   const updateCategory = useCallback(
     async (category) => {
-      const token = currentUser?.token || null
+      const token = getSessionToken(tenantId)
       if (!tenantId || !token) {
         dispatch({ type: 'UPDATE_CATEGORY', category })
         return category
@@ -269,12 +269,12 @@ export function ProductProvider({ children }) {
       dispatch({ type: 'UPDATE_CATEGORY', category: saved })
       return saved
     },
-    [tenantId, currentUser?.token],
+    [tenantId],
   )
 
   const deleteCategory = useCallback(
     async (id) => {
-      const token = currentUser?.token || null
+      const token = getSessionToken(tenantId)
       if (!tenantId || !token) {
         dispatch({ type: 'DELETE_CATEGORY', id })
         return
@@ -286,7 +286,7 @@ export function ProductProvider({ children }) {
       })
       dispatch({ type: 'DELETE_CATEGORY', id })
     },
-    [tenantId, currentUser?.token],
+    [tenantId],
   )
 
   const reloadFromStorage = useCallback(() => loadCatalog(), [loadCatalog])
@@ -323,10 +323,4 @@ export function ProductProvider({ children }) {
   return (
     <ProductContext.Provider value={value}>{children}</ProductContext.Provider>
   )
-}
-
-export function useProducts() {
-  const ctx = useContext(ProductContext)
-  if (!ctx) throw new Error('useProducts must be used within ProductProvider')
-  return ctx
 }

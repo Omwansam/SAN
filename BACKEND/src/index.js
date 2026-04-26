@@ -22,10 +22,15 @@ const taxRateRouter = require('./routes/taxrates.routes');
 const supplierRouter = require('./routes/suppliers.routes');
 const shiftRouter = require('./routes/shifts.routes');
 const reportRouter = require('./routes/reports.routes');
+const orderRouter = require('./routes/orders.routes');
+const discountRouter = require('./routes/discounts.routes');
+const etimsRouter = require('./routes/etims.routes');
+const { processPendingFiscalJobs } = require('./services/etims.service');
 
 const app = express();
 const port = config.PORT || 5000;
 let httpServer = null;
+let etimsWorker = null;
 
 app.use(helmet());
 app.use(
@@ -70,19 +75,49 @@ app.use('/api/taxrates', taxRateRouter);
 app.use('/api/suppliers', supplierRouter);
 app.use('/api/shifts', shiftRouter);
 app.use('/api/reports', reportRouter);
+app.use('/api/orders', orderRouter);
+app.use('/api/discounts', discountRouter);
+app.use('/api/etims', etimsRouter);
 
 app.use(errorHandler);
 
 async function shutdown(signal) {
   console.log(`[server] ${signal} received, shutting down...`);
+  if (etimsWorker) {
+    clearInterval(etimsWorker);
+    etimsWorker = null;
+  }
   if (httpServer) {
     await new Promise((resolve) => httpServer.close(resolve));
   }
   await disconnectDB();
 }
 
+function maybeStartEtimsWorker() {
+  const enabled = String(config.ETIMS_SYNC_ENABLED || 'true').toLowerCase() === 'true';
+  if (!enabled) {
+    console.log('[etims] worker disabled by config');
+    return;
+  }
+  const intervalMs = Math.max(Number(config.ETIMS_WORKER_INTERVAL_MS) || 8000, 1000);
+  etimsWorker = setInterval(async () => {
+    try {
+      const result = await processPendingFiscalJobs({ limit: 20 });
+      if (result.processed > 0) {
+        console.log(
+          `[etims] processed=${result.processed}, success=${result.success}, failed=${result.failed}`,
+        );
+      }
+    } catch (error) {
+      console.error('[etims] worker iteration failed:', error.message);
+    }
+  }, intervalMs);
+  console.log(`[etims] worker started (interval: ${intervalMs}ms)`);
+}
+
 async function bootstrap() {
   await connectDB();
+  maybeStartEtimsWorker();
   httpServer = app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
   });

@@ -112,6 +112,7 @@ export function ExpressCartLayout({
   onSelectCustomer,
   onClearCustomer,
   onOrderDiscount,
+  onValidateDiscountCode,
   onPay,
   onOpenSplit,
   customerQuery,
@@ -137,25 +138,34 @@ export function ExpressCartLayout({
     businessType,
   )
 
-  function applyPromoCode(code) {
+  async function applyPromoCode(code) {
     const upper = String(code).trim().toUpperCase()
-    const rule = PROMOS[upper]
-    if (!rule) {
-      toast.error('Unknown code.')
-      return
+    if (onValidateDiscountCode) {
+      const result = await onValidateDiscountCode(upper)
+      if (result?.ok) {
+        toast.success(`Applied ${upper}`)
+        setPromoInput('')
+        return
+      }
+      if (result?.error) {
+        toast.error(result.error)
+        return
+      }
     }
-    onOrderDiscount({ type: rule.type, value: rule.value })
+    const rule = PROMOS[upper]
+    if (!rule) return toast.error('Unknown code.')
+    onOrderDiscount({ type: rule.type, value: rule.value, discountCode: upper })
     toast.success(`Applied ${upper}`)
     setPromoInput('')
   }
 
-  function applyPromoFromInput() {
+  async function applyPromoFromInput() {
     const code = promoInput.trim().toUpperCase()
     if (!code) {
       toast.error('Enter a promotion code.')
       return
     }
-    applyPromoCode(code)
+    await applyPromoCode(code)
   }
 
   /** Frosted shell — blends with POS light/dark surfaces. */
@@ -344,7 +354,7 @@ export function ExpressCartLayout({
             <button
               key={code}
               type="button"
-              onClick={() => applyPromoCode(code)}
+              onClick={() => void applyPromoCode(code)}
               className={`rounded-full border border-gray-200/90 bg-white/80 font-bold tracking-wide text-gray-900 shadow-sm transition hover:bg-white dark:border-white/10 dark:bg-gray-950/40 dark:text-white dark:hover:bg-gray-900/60 ${slimSidebar ? 'px-2 py-1 text-[10px]' : 'px-3.5 py-2 text-xs'}`}
             >
               {code}
@@ -364,7 +374,7 @@ export function ExpressCartLayout({
               onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
               aria-label="Promotion code"
             />
-            <Button type="button" variant="secondary" className="shrink-0" onClick={applyPromoFromInput}>
+            <Button type="button" variant="secondary" className="shrink-0" onClick={() => void applyPromoFromInput()}>
               Apply
             </Button>
           </div>

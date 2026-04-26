@@ -20,7 +20,7 @@ export default function Login() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { switchTenant, tenantId, tenantConfig, setTenantConfig } = useTenant()
-  const { login, isAuthenticated } = useAuth()
+  const { login, isAuthenticated, role } = useAuth()
 
   const [slug, setSlug] = useState('')
   const [slugLocked, setSlugLocked] = useState(false)
@@ -65,13 +65,17 @@ export default function Login() {
 
   useEffect(() => {
     if (!isAuthenticated || !tenantId) return
+    if (role === 'superadmin') {
+      navigate('/platform', { replace: true })
+      return
+    }
     if (!tenantConfig) navigate('/onboarding', { replace: true })
     else if (tenantConfig.businessTypeConfirmed === false) {
       navigate('/business-type', { replace: true })
     } else {
       navigate('/pos', { replace: true })
     }
-  }, [isAuthenticated, tenantId, tenantConfig, navigate])
+  }, [isAuthenticated, tenantId, tenantConfig, role, navigate])
 
   const handleSubmit = useCallback(
     async (e) => {

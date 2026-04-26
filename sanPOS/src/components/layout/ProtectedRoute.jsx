@@ -3,11 +3,14 @@ import { useAuth } from '../../hooks/useAuth'
 import { useTenant } from '../../hooks/useTenant'
 
 export function ProtectedRoute() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, role } = useAuth()
   const { tenantId, tenantConfig } = useTenant()
   const loc = useLocation()
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: loc.pathname }} />
+  }
+  if (role === 'superadmin') {
+    return <Navigate to="/platform" replace />
   }
   if (tenantId && !tenantConfig) {
     return (
