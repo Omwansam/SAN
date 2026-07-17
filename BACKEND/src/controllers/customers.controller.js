@@ -1,4 +1,5 @@
 const { prisma } = require('../config/db');
+const { parseUpdatedSince, serverTime } = require('../utils/delta');
 
 function normalizeOptionalString(value) {
   if (value === undefined) return undefined;
@@ -21,6 +22,8 @@ const listCustomers = async (req, res, next) => {
     const db = req.db || prisma;
     const { q } = req.query || {};
     const where = { tenantId: req.tenant.id };
+    const updatedSince = parseUpdatedSince(req.query);
+    if (updatedSince) where.updatedAt = { gt: updatedSince };
     if (q && String(q).trim()) {
       const search = String(q).trim();
       where.OR = [
@@ -33,7 +36,7 @@ const listCustomers = async (req, res, next) => {
       where,
       orderBy: [{ createdAt: 'desc' }],
     });
-    return res.status(200).json({ success: true, count: customers.length, data: customers });
+    return res.status(200).json({ success: true, count: customers.length, data: customers, serverTime: serverTime() });
   } catch (error) {
     return next(error);
   }

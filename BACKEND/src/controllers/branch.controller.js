@@ -1,4 +1,5 @@
 const { prisma } = require('../config/db');
+const { serverTime } = require('../utils/delta');
 
 const isPrivilegedRole = (role) => ['superadmin', 'admin', 'manager'].includes(role);
 
@@ -11,7 +12,7 @@ const listBranches = async (req, res, next) => {
         where: { tenantId: req.tenant.id },
         orderBy: { createdAt: 'desc' },
       });
-      return res.status(200).json({ success: true, count: branches.length, data: branches });
+      return res.status(200).json({ success: true, count: branches.length, data: branches, serverTime: serverTime() });
     }
 
     const userBranches = await db.userBranch.findMany({
@@ -24,6 +25,7 @@ const listBranches = async (req, res, next) => {
       success: true,
       count: userBranches.length,
       data: userBranches.map((item) => item.branch),
+      serverTime: serverTime(),
     });
   } catch (error) {
     return next(error);

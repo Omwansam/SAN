@@ -1,10 +1,14 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { Check, Printer, X } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { Modal } from '../shared/Modal'
 import { Button } from '../shared/Button'
 import { formatCurrency } from '../../utils/currency'
-import { generateReceiptHTML } from '../../utils/receipt'
+import { renderReceiptDocHTML } from '../../utils/receipt'
+import { buildReceiptDoc } from '../../utils/receiptData'
+import { qrDataUrl } from '../../utils/receiptQr'
+import { getBridge, hasThermalPrinter } from '../../utils/platform'
 
 const PAYMENT_LABELS = {
   cash: 'Cash',
@@ -23,12 +27,29 @@ function paySummary(order, tenantConfig) {
 }
 
 export function ReceiptModal({ open, onOpenChange, order, tenantConfig, meta }) {
-  const html = useMemo(
-    () => (order ? generateReceiptHTML(order, tenantConfig, meta) : ''),
+  const doc = useMemo(
+    () => (order ? buildReceiptDoc(order, tenantConfig, meta) : null),
     [order, tenantConfig, meta],
   )
+  const [qrState, setQrState] = useState(null) // { payload, url }
+  useEffect(() => {
+    if (!doc?.qrPayload) return undefined
+    let cancelled = false
+    qrDataUrl(doc.qrPayload).then((url) => {
+      if (!cancelled) setQrState({ payload: doc.qrPayload, url })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [doc])
+  // only use a QR that belongs to the current receipt (async generation)
+  const qr = qrState && qrState.payload === doc?.qrPayload ? qrState.url : null
+  const html = useMemo(
+    () => (doc ? renderReceiptDocHTML(doc, { qrDataUrl: qr }) : ''),
+    [doc, qr],
+  )
 
-  function print() {
+  function printHtml() {
     const w = window.open('', '_blank')
     if (!w) return
     w.document.write(html)
@@ -36,6 +57,19 @@ export function ReceiptModal({ open, onOpenChange, order, tenantConfig, meta }) 
     w.focus()
     w.print()
     w.close()
+  }
+
+  async function print() {
+    if (doc && hasThermalPrinter()) {
+      try {
+        await getBridge().printer.print(doc, {})
+        toast.success('Receipt sent to printer')
+        return
+      } catch (error) {
+        toast.error(error?.message || 'Thermal print failed — using browser print.')
+      }
+    }
+    printHtml()
   }
 
   function email() {

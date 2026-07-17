@@ -131,6 +131,14 @@ export function CustomerProvider({ children }) {
     [tenantId, currentUser?.token],
   )
 
+  // Optimistic, local-only loyalty update for the sale path. The server now
+  // accrues points/spend inside the order transaction, so the client must NOT
+  // also PUT the customer — this just keeps the on-screen totals current until
+  // the next customer sync.
+  const patchCustomerLocal = useCallback((customer) => {
+    dispatch({ type: 'UPDATE', customer })
+  }, [])
+
   const deleteCustomer = useCallback(
     async (id) => {
       const token = currentUser?.token || null
@@ -153,10 +161,11 @@ export function CustomerProvider({ children }) {
       customers: state.customers,
       addCustomer,
       updateCustomer,
+      patchCustomerLocal,
       deleteCustomer,
       reloadFromStorage,
     }),
-    [state.customers, addCustomer, updateCustomer, deleteCustomer, reloadFromStorage],
+    [state.customers, addCustomer, updateCustomer, patchCustomerLocal, deleteCustomer, reloadFromStorage],
   )
 
   return (

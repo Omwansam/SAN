@@ -1,0 +1,61 @@
+name: Desktop release (Windows)
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      # Fingerprint helper. Without the DigitalPersona SDK dlls in
+      # desktop/fingerprint-helper/libs (a licensed download, not in git) this
+      # produces the stub build — the app runs, fingerprint reports unavailable.
+      - name: Build fingerprint helper
+        working-directory: desktop/fingerprint-helper
+        run: |
+          dotnet publish -c Release -r win-x64 -o publish
+
+      - name: Install renderer deps
+        working-directory: sanPOS
+        run: npm ci
+
+      - name: Install desktop deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Typecheck main/preload
+        working-directory: desktop
+        run: npm run typecheck
+
+      - name: Build renderer (sanPOS)
+        working-directory: sanPOS
+        run: npm run build
+
+      - name: Build and package installer
+        working-directory: desktop
+        env:
+          # add CSC_LINK / CSC_KEY_PASSWORD (or Azure Trusted Signing env) once
+          # a code-signing certificate is provisioned
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-vite build
+          npx electron-builder --win --x64 --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sanpos-windows-installer
+          path: |
+            desktop/release/*.exe
+            desktop/release/latest.yml

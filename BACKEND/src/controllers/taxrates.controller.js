@@ -1,4 +1,5 @@
 const { prisma } = require('../config/db');
+const { parseUpdatedSince, serverTime } = require('../utils/delta');
 
 function normalizeOptionalString(value) {
   if (value === undefined) return undefined;
@@ -19,12 +20,14 @@ const listTaxRates = async (req, res, next) => {
     const { active } = req.query || {};
     const where = { tenantId: req.tenant.id };
     if (active !== undefined) where.isActive = String(active).toLowerCase() === 'true';
+    const updatedSince = parseUpdatedSince(req.query);
+    if (updatedSince) where.updatedAt = { gt: updatedSince };
 
     const taxRates = await db.taxRate.findMany({
       where,
       orderBy: [{ createdAt: 'desc' }],
     });
-    return res.status(200).json({ success: true, count: taxRates.length, data: taxRates });
+    return res.status(200).json({ success: true, count: taxRates.length, data: taxRates, serverTime: serverTime() });
   } catch (error) {
     return next(error);
   }

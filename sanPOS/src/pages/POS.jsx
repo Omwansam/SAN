@@ -30,6 +30,7 @@ import { Modal } from '../components/shared/Modal'
 import { useAuth } from '../hooks/useAuth'
 import { useBranch } from '../hooks/useBranch'
 import { useCart } from '../hooks/useCart'
+import { useScannerWedge } from '../hooks/useScannerWedge'
 import { useCustomers } from '../hooks/useCustomers'
 import { useOrders } from '../hooks/useOrders'
 import { useProducts } from '../hooks/useProducts'
@@ -46,7 +47,8 @@ import {
 import { formatCurrency } from '../utils/currency'
 import { validateRxCartLines } from '../utils/rxValidation'
 import { apiRequest } from '../utils/api'
-import { appendStockLog } from '../utils/stockLog'
+import { buildReceiptDoc } from '../utils/receiptData'
+import { getBridge, isDesktop } from '../utils/platform'
 import { postCustomerDisplayMessage } from '../utils/customerDisplayChannel'
 import { getJSON, setJSON } from '../utils/storage'
 import { newId } from '../utils/uuid'
@@ -69,9 +71,9 @@ export default function POS() {
     useCustomerDisplayRegisterOnline(tenantId)
   const { activeBranchId, activeBranch } = useBranch()
   const { currentUser, can } = useAuth()
-  const { products, categories, updateProduct } = useProducts()
+  const { products, categories, patchProductLocal } = useProducts()
   const { createOrder, reloadFromStorage: reloadOrders } = useOrders()
-  const { customers, addCustomer, updateCustomer } = useCustomers()
+  const { customers, addCustomer, patchCustomerLocal } = useCustomers()
   const { pushNotification } = useNotifications()
   const {
     items,
@@ -333,6 +335,18 @@ export default function POS() {
     return () => window.removeEventListener('keydown', onKey)
   }, [items.length, openFullPay])
 
+  // USB/Bluetooth barcode scanners type as HID keyboards; this catches their
+  // fast key bursts window-wide so a scan lands in the cart with nothing focused.
+  useScannerWedge(
+    useCallback(
+      (code) => {
+        if (document.querySelector('[role="dialog"]')) return
+        commitSearch(code.trim())
+      },
+      [commitSearch],
+    ),
+  )
+
   const holdCart = useCallback(() => {
     if (!tenantId || !activeBranchId || !items.length) {
       toast.error('Nothing to hold.')
@@ -452,6 +466,9 @@ export default function POS() {
 
       const firstPayment = Array.isArray(payments) && payments.length > 0 ? payments[0] : null
       const orderPayload = {
+        // idempotency key: lets the desktop app queue this sale offline and
+        // replay it safely — the backend returns the existing order on a rerun
+        clientRef: newId(),
         tenantId,
         branchId: activeBranchId ?? undefined,
         registerId,
@@ -475,6 +492,12 @@ export default function POS() {
               },
             }
           : {}),
+        // Let the server derive stock + loyalty from this order in one atomic,
+        // idempotent transaction. Critical for offline: when the queued order
+        // replays, inventory and loyalty reconcile exactly once — the client no
+        // longer writes them separately (those writes never synced offline).
+        applyInventory: Boolean(tenantConfig.modules?.inventory),
+        applyLoyalty: Boolean(tenantConfig.modules?.loyalty && activeCustomer?.id),
         ...restaurantService,
         ...deliveryPatch,
       }
@@ -487,39 +510,15 @@ export default function POS() {
         return
       }
 
+      // Stock + loyalty are persisted server-side from the order above (works
+      // offline via the sync queue). Here we only optimistically refresh the
+      // on-screen numbers so the next sale sees the new stock; the next catalog
+      // sync reconciles them with the authoritative server values.
       if (tenantConfig.modules?.inventory) {
         for (const it of payItems) {
           const pr = products.find((x) => x.id === it.productId)
           if (pr) {
-            const nextStock = Math.max(0, (pr.stock ?? 0) - it.qty)
-            void updateProduct({
-              ...pr,
-              stock: nextStock,
-            }).catch(() => {})
-            if (currentUser?.token) {
-              const workspace = `?workspace=${encodeURIComponent(tenantId)}`
-              apiRequest(`/api/stock${workspace}`, {
-                method: 'POST',
-                token: currentUser.token,
-                body: {
-                  branchId: activeBranchId,
-                  productId: pr.id,
-                  productName: pr.name,
-                  delta: -it.qty,
-                  reason: 'sale',
-                  userId: currentUser.id,
-                },
-              }).catch(() => {})
-            } else {
-              appendStockLog(tenantId, {
-                branchId: activeBranchId,
-                productId: pr.id,
-                productName: pr.name,
-                delta: -it.qty,
-                reason: 'sale',
-                userId: currentUser.id,
-              })
-            }
+            patchProductLocal({ ...pr, stock: Math.max(0, (pr.stock ?? 0) - it.qty) })
           }
         }
       }
@@ -527,12 +526,11 @@ export default function POS() {
       if (tenantConfig.modules?.loyalty && activeCustomer?.id) {
         const c = customers.find((x) => x.id === activeCustomer.id)
         if (c) {
-          const spendBase = t.total
-          void updateCustomer({
+          patchCustomerLocal({
             ...c,
-            loyaltyPoints: (c.loyaltyPoints ?? 0) + Math.floor(spendBase / 100),
-            totalSpend: (c.totalSpend ?? 0) + spendBase,
-          }).catch(() => {})
+            loyaltyPoints: (c.loyaltyPoints ?? 0) + Math.floor(t.total / 100),
+            totalSpend: (c.totalSpend ?? 0) + t.total,
+          })
         }
       }
 
@@ -601,6 +599,29 @@ export default function POS() {
       }
 
       setLastOrder(order)
+
+      if (isDesktop()) {
+        const bridge = getBridge()
+        try {
+          const devices = (await bridge.config.get())?.devices
+          const paidCash = (payments ?? []).some((p) => (p.method || 'cash') === 'cash')
+          const shouldKick = Boolean(devices?.kickDrawerOnCash && paidCash)
+          if (devices?.autoPrintOnSale && devices?.printer?.transport) {
+            const doc = buildReceiptDoc(order, tenantConfig, {
+              cashierName: currentUser?.name,
+              customerName: order?.customerName ?? activeCustomer?.name,
+              branchName: activeBranch?.name,
+              registerId: tenantId ? getJSON(tenantId, 'activeRegisterId', '') : '',
+            })
+            await bridge.printer.print(doc, { kickDrawer: shouldKick })
+          } else if (shouldKick) {
+            await bridge.drawer.kick()
+          }
+        } catch (error) {
+          toast.error(error?.message || 'Receipt print failed — check Settings → Devices.')
+        }
+      }
+
       postCustomerDisplayMessage({
         type: 'sale_complete',
         total: t.total,
@@ -639,8 +660,8 @@ export default function POS() {
       customers,
       createOrder,
       reloadOrders,
-      updateProduct,
-      updateCustomer,
+      patchProductLocal,
+      patchCustomerLocal,
       clearCart,
       removeLineIds,
       partialLineIds,
@@ -648,6 +669,7 @@ export default function POS() {
       pos.sendToKitchenOnSale,
       serviceMode,
       activeBranchId,
+      activeBranch,
       deliveryMeta,
       pushNotification,
     ],

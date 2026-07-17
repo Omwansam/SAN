@@ -18,7 +18,7 @@ export function Modal({
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out" />
         <Dialog.Content
           className={`fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl outline-none dark:bg-gray-900 ${contentClassName}`}
-          aria-describedby={description ? 'modal-desc' : undefined}
+          aria-describedby={description && !bare ? 'modal-desc' : undefined}
         >
           {!bare ? (
             <div className="mb-4 flex items-start justify-between gap-4">

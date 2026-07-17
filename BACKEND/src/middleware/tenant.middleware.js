@@ -23,9 +23,11 @@ function tenantResolver(options = {}) {
     try {
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       const subSlug = firstHostPart(host);
+      // Desktop/native clients have no subdomain; they identify the workspace here.
+      const headerSlug = normalizeSlug(req.headers['x-workspace-slug']);
       const bodySlug = normalizeSlug(req.body?.workspaceSlug || req.body?.slug);
       const querySlug = normalizeSlug(req.query?.workspaceSlug || req.query?.slug || req.query?.workspace);
-      const slug = subSlug || bodySlug || querySlug;
+      const slug = subSlug || headerSlug || bodySlug || querySlug;
 
       if (!slug) {
         req.tenant = null;

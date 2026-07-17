@@ -1,4 +1,5 @@
 const { prisma } = require('../config/db');
+const { parseUpdatedSince, serverTime } = require('../utils/delta');
 
 function normalizeOptionalString(value) {
   if (value === undefined) return undefined;
@@ -14,11 +15,15 @@ function isHexColor(value) {
 const listCategories = async (req, res, next) => {
   try {
     const db = req.db || prisma;
+    const updatedSince = parseUpdatedSince(req.query);
     const categories = await db.category.findMany({
-      where: { tenantId: req.tenant.id },
+      where: {
+        tenantId: req.tenant.id,
+        ...(updatedSince ? { updatedAt: { gt: updatedSince } } : {}),
+      },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
-    return res.status(200).json({ success: true, count: categories.length, data: categories });
+    return res.status(200).json({ success: true, count: categories.length, data: categories, serverTime: serverTime() });
   } catch (error) {
     return next(error);
   }

@@ -201,6 +201,7 @@ model Tenant {
   taxRates                    TaxRate[]
   discounts                   Discount[]
   shifts                      Shift[]
+  fingerprintTemplates        FingerprintTemplate[]
   suppliers                   Supplier[]
   purchaseOrders              PurchaseOrder[]
   inventoryTransactions       InventoryTransaction[]
@@ -303,6 +304,7 @@ model User {
   authSessions            AuthSession[]
   onboardingDraftsCreated OnboardingDraft[] @relation("OnboardingCreatedAdmin")
   shifts                  Shift[]
+  fingerprintTemplates    FingerprintTemplate[]
   inventoryTransactions   InventoryTransaction[]
   payments                Payment[]
   storedPaymentMethods    StoredPaymentMethod[]
@@ -497,6 +499,10 @@ model Order {
   deliveryAddress   String?
   deliveryPhone     String?
   deliveryRider     String?
+  /// idempotency key from POS clients; offline desktop sales replay safely on sync
+  clientRef         String?
+  /// wall-clock sale time on the till for offline sales (createdAt stays server time)
+  createdAtClient   DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -515,6 +521,7 @@ model Order {
 
   @@index([tenantId])
   @@index([tenantId, createdAt])
+  @@unique([tenantId, clientRef])
   @@index([branchId])
   @@index([registerId])
   @@index([cashierId])
@@ -1021,6 +1028,8 @@ model Shift {
   expectedBalance Decimal?       @db.Decimal(10, 2)
   status          RegisterStatus @default(open)
   notes           String?
+  /// idempotency key from POS clients; offline shift opens replay safely on sync
+  clientRef       String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -1029,10 +1038,31 @@ model Shift {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   orders Order[]
 
+  @@unique([tenantId, clientRef])
   @@index([tenantId])
   @@index([tenantId, branchId])
   @@index([tenantId, userId])
   @@index([tenantId, status])
+}
+
+/// DigitalPersona fingerprint templates for cashier login / manager override
+/// in the desktop app. Enrolled from the till, matched locally by the reader.
+model FingerprintTemplate {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  /// 0-9 finger index (thumb..pinky, left/right) — one template per finger
+  finger    Int      @default(0)
+  /// base64-serialized DigitalPersona template blob
+  template  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, finger])
+  @@index([tenantId])
 }
 
 model Supplier {

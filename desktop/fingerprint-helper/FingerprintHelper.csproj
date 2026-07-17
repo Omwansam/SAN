@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>FingerprintHelper</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>false</PublishSingleFile>
+  </PropertyGroup>
+
+  <!--
+    Drop the DigitalPersona One Touch for Windows SDK assemblies into ./libs
+    (DPFPDevNET.dll, DPFPEngNET.dll, DPFPShrNET.dll, DPFPVerNET.dll).
+    The SDK is a licensed download from HID Global — it is NOT committed to git.
+    When libs/ is absent the project builds the stub implementation, which
+    reports the reader as unavailable (used by CI and non-Windows dev machines).
+  -->
+  <PropertyGroup Condition="!Exists('libs/DPFPDevNET.dll')">
+    <DefineConstants>$(DefineConstants);FINGERPRINT_STUB</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="Exists('libs/DPFPDevNET.dll')">
+    <Reference Include="DPFPDevNET"><HintPath>libs/DPFPDevNET.dll</HintPath></Reference>
+    <Reference Include="DPFPEngNET"><HintPath>libs/DPFPEngNET.dll</HintPath></Reference>
+    <Reference Include="DPFPShrNET"><HintPath>libs/DPFPShrNET.dll</HintPath></Reference>
+    <Reference Include="DPFPVerNET"><HintPath>libs/DPFPVerNET.dll</HintPath></Reference>
+  </ItemGroup>
+
+</Project>

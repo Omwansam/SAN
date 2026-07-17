@@ -1,4 +1,5 @@
 const { prisma } = require('../config/db');
+const { parseUpdatedSince, serverTime } = require('../utils/delta');
 
 function normalizeInteger(value, fallback = 0) {
   if (value === undefined || value === null || value === '') return fallback;
@@ -31,6 +32,8 @@ const listProducts = async (req, res, next) => {
     const { categoryId, q, active } = req.query || {};
 
     const where = { tenantId: req.tenant.id };
+    const updatedSince = parseUpdatedSince(req.query);
+    if (updatedSince) where.updatedAt = { gt: updatedSince };
     if (categoryId) where.categoryId = String(categoryId);
     if (q && String(q).trim()) {
       const search = String(q).trim();
@@ -58,7 +61,7 @@ const listProducts = async (req, res, next) => {
       },
     });
 
-    return res.status(200).json({ success: true, count: products.length, data: products });
+    return res.status(200).json({ success: true, count: products.length, data: products, serverTime: serverTime() });
   } catch (error) {
     return next(error);
   }

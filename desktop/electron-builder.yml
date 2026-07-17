@@ -1,0 +1,40 @@
+appId: com.sanpos.desktop
+productName: SanPOS
+copyright: Copyright © 2026 Omwansa Arnold
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - out/**
+
+extraResources:
+  # the built sanPOS SPA, served in-app via the app:// protocol
+  - from: ../sanPOS/dist
+    to: renderer
+  # .NET fingerprint helper (built on Windows; dir may be empty on Linux builds)
+  - from: fingerprint-helper/publish
+    to: fingerprint-helper
+
+asarUnpack:
+  - "**/*.node"
+
+npmRebuild: true
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # icon: resources/icon.ico   # add a real .ico here, then uncomment
+
+nsis:
+  oneClick: false
+  perMachine: true
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+publish:
+  provider: generic
+  # point this at the VPS path that serves latest.yml + installers
+  url: https://updates.example.com/desktop-updates

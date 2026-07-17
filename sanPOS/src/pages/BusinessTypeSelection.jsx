@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Button } from '../components/shared/Button'
@@ -63,6 +63,7 @@ export default function BusinessTypeSelection() {
   const navigate = useNavigate()
   const { tenantId, tenantConfig, setTenantConfig } = useTenant()
   const { currentUser } = useAuth()
+  const pinSavedRef = useRef(false)
   const [selectedType, setSelectedType] = useState(tenantConfig?.businessType || 'retail')
   const [saving, setSaving] = useState(false)
   const [pinModalOpen, setPinModalOpen] = useState(false)
@@ -70,6 +71,7 @@ export default function BusinessTypeSelection() {
   const [pinForm, setPinForm] = useState({ pin: '', confirmPin: '' })
   const [pinConfigured, setPinConfigured] = useState(Boolean(currentUser?.hasPin))
   const [pinPrompted, setPinPrompted] = useState(false)
+  
 
   const businessName = useMemo(
     () => tenantConfig?.businessName || 'your business',
@@ -158,10 +160,14 @@ export default function BusinessTypeSelection() {
         token: currentUser.token,
         body: { pin: pinForm.pin },
       })
-      setPinConfigured(true)
-      setPinModalOpen(false)
       toast.success('PIN saved.')
-      navigate('/pos', { replace: true })
+      pinSavedRef.current = true
+      setPinConfigured(true)
+      setPinPrompted(true)
+      setPinModalOpen(false)
+      setTimeout(() => {
+        navigate('/pos', { replace: true })
+      }, 100)
     } catch (error) {
       toast.error(error.message || 'Failed to save PIN.')
     } finally {
@@ -205,12 +211,7 @@ export default function BusinessTypeSelection() {
           </Button>
         </div>
       </section>
-      <Modal
-        open={pinModalOpen}
-        onOpenChange={(open) => {
-          if (!open && !pinConfigured) return
-          setPinModalOpen(open)
-        }}
+      <Modal open={pinModalOpen} onOpenChange={(open) => setPinModalOpen(open)}
         title="Create your PIN"
         description="Set a PIN now so you can quickly sign in next time."
         footer={

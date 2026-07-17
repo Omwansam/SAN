@@ -1,0 +1,7 @@
+node_modules/
+out/
+release/
+fingerprint-helper/bin/
+fingerprint-helper/obj/
+fingerprint-helper/libs/
+*.log

@@ -36,6 +36,7 @@ const SettingsUsers = lazy(() => import('./pages/SettingsUsers'))
 const SettingsRegisters = lazy(() => import('./pages/SettingsRegisters'))
 const SettingsBranches = lazy(() => import('./pages/SettingsBranches'))
 const SettingsReceipt = lazy(() => import('./pages/SettingsReceipt'))
+const SettingsDevices = lazy(() => import('./pages/SettingsDevices'))
 const SettingsBackup = lazy(() => import('./pages/SettingsBackup'))
 const SettingsBilling = lazy(() => import('./pages/SettingsBilling'))
 const SettingsNotifications = lazy(() => import('./pages/SettingsNotifications'))
@@ -403,6 +404,14 @@ export default function App() {
                           element={
                             <Page>
                               <SettingsReceipt />
+                            </Page>
+                          }
+                        />
+                        <Route
+                          path="/settings/devices"
+                          element={
+                            <Page>
+                              <SettingsDevices />
                             </Page>
                           }
                         />

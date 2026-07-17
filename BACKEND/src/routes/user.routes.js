@@ -12,6 +12,10 @@ const {
   createUser,
   updateUserAdmin,
   setMyPin,
+  getOfflineCredentials,
+  listFingerprintTemplates,
+  enrollFingerprint,
+  deleteFingerprintTemplates,
 } = require('../controllers/user.controller');
 
 const userRouter = express.Router();
@@ -26,6 +30,16 @@ userRouter.get('/profile', getProfile);
 userRouter.put('/profile', updateProfile);
 userRouter.put('/change-password', changePassword);
 userRouter.put('/pin', setMyPin);
+
+// desktop app: offline manager-PIN mirror + fingerprint templates
+userRouter.get('/offline-credentials', getOfflineCredentials);
+userRouter.get('/fingerprints', listFingerprintTemplates);
+userRouter.post('/fingerprints', enrollFingerprint);
+userRouter.delete(
+  '/fingerprints/:userId',
+  authorize('manager', 'admin', 'superadmin'),
+  deleteFingerprintTemplates,
+);
 
 // admin routes
 userRouter.use(authorize('admin', 'superadmin'));

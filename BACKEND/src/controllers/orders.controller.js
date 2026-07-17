@@ -207,10 +207,32 @@ async function createOrder(req, res, next) {
       discountCode = null,
       items = [],
       payment = null,
+      clientRef = null,
+      createdAtClient = null,
+      applyInventory = false,
+      applyLoyalty = false,
     } = req.body || {};
 
     const tenantId = req.tenant.id;
     const resolvedCashierId = cashierId || req.user?.id || null;
+
+    // Idempotent replay: offline POS clients queue sales with a clientRef and
+    // may retry after partial failures — return the already-created order.
+    if (clientRef) {
+      const existing = await db.order.findFirst({
+        where: { tenantId, clientRef: String(clientRef) },
+        include: {
+          items: true,
+          payments: true,
+          branch: { select: { id: true, name: true } },
+          customer: { select: { id: true, name: true } },
+          cashier: { select: { id: true, name: true } },
+        },
+      });
+      if (existing) {
+        return res.status(200).json({ success: true, data: existing, replayed: true });
+      }
+    }
 
     const result = await db.$transaction(async (tx) => {
       if (branchId) {
@@ -368,6 +390,11 @@ async function createOrder(req, res, next) {
           deliveryAddress: normalizeString(deliveryAddress),
           deliveryPhone: normalizeString(deliveryPhone),
           deliveryRider: normalizeString(deliveryRider),
+          clientRef: clientRef ? String(clientRef) : null,
+          createdAtClient:
+            createdAtClient && !Number.isNaN(Date.parse(createdAtClient))
+              ? new Date(createdAtClient)
+              : null,
           items: { create: itemCreates },
         },
         include: { items: true },
@@ -388,6 +415,51 @@ async function createOrder(req, res, next) {
             paymentStatus: payment.paymentStatus || 'paid',
             transactionId: normalizeString(payment.transactionId),
             reference: normalizeString(payment.reference),
+          },
+        });
+      }
+
+      // Derive inventory + loyalty from the order itself, inside this same
+      // transaction. This is what makes offline sales reconcile correctly: the
+      // client no longer PUTs stock/loyalty separately (those never queued), so
+      // replaying one queued order applies every side effect exactly once
+      // (idempotency is guaranteed by the clientRef short-circuit above).
+      // Gated by flags the client sends from its module config, so a tenant
+      // with inventory/loyalty off is unaffected and older payloads that omit
+      // the flags keep their previous client-driven behavior.
+      if (applyInventory) {
+        for (const line of order.items) {
+          if (!line.productId) continue;
+          // Relative, race-safe decrement clamped at 0 (matches prior client
+          // behavior). Raw update bypasses the tenant $extends wrapper, so the
+          // tenant guard is in the WHERE and updatedAt is bumped for delta sync.
+          await tx.$executeRaw`
+            UPDATE "Product"
+            SET "stock" = GREATEST(0, "stock" - ${line.qty}), "updatedAt" = NOW()
+            WHERE "id" = ${line.productId} AND "tenantId" = ${tenantId}`;
+          await tx.stockLog.create({
+            data: {
+              tenantId,
+              branchId: branchId ? String(branchId) : null,
+              productId: line.productId,
+              productName: line.name,
+              delta: -line.qty,
+              reason: 'sale',
+              userId: resolvedCashierId ? String(resolvedCashierId) : null,
+            },
+          });
+        }
+      }
+
+      if (applyLoyalty && customerId) {
+        const loyaltyPoints = Math.floor(total / 100);
+        // updateMany is tenant-scoped by the $extends wrapper and applies
+        // relative increments atomically (no stale-snapshot overwrite).
+        await tx.customer.updateMany({
+          where: { id: String(customerId) },
+          data: {
+            loyaltyPoints: { increment: loyaltyPoints },
+            totalSpend: { increment: total },
           },
         });
       }
@@ -420,6 +492,21 @@ async function createOrder(req, res, next) {
     return res.status(201).json({ success: true, data: result });
   } catch (error) {
     if (error?.code === 'P2002') {
+      // Concurrent idempotent replay raced the unique(tenantId, clientRef)
+      // index — return the winner instead of erroring.
+      const clientRef = req.body?.clientRef;
+      if (clientRef) {
+        const db = req.db || prisma;
+        const existing = await db.order
+          .findFirst({
+            where: { tenantId: req.tenant.id, clientRef: String(clientRef) },
+            include: { items: true, payments: true },
+          })
+          .catch(() => null);
+        if (existing) {
+          return res.status(200).json({ success: true, data: existing, replayed: true });
+        }
+      }
       return res.status(409).json({ success: false, error: 'Duplicate transactionId or unique field in order payload' });
     }
     if (error?.status) {

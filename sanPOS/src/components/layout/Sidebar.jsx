@@ -12,6 +12,7 @@ import {
   Landmark,
   LayoutGrid,
   Package,
+  Printer,
   Receipt,
   Settings,
   Shield,
@@ -100,6 +101,12 @@ export function Sidebar() {
       to: '/settings/receipt',
       label: 'Receipt',
       icon: Receipt,
+      perm: 'settings',
+    },
+    {
+      to: '/settings/devices',
+      label: 'Devices',
+      icon: Printer,
       perm: 'settings',
     },
     {

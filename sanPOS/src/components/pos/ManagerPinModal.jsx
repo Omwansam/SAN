@@ -5,8 +5,10 @@ import { Input } from '../shared/Input'
 import { Modal } from '../shared/Modal'
 import { getJSON } from '../../utils/storage'
 import { apiRequest } from '../../utils/api'
+import { FingerprintPrompt } from './FingerprintPrompt'
 
 const MANAGER_ROLES = new Set(['manager', 'admin', 'superadmin'])
+const MANAGER_ROLE_LIST = ['manager', 'admin', 'superadmin']
 
 export function ManagerPinModal({ open, onOpenChange, tenantId, token, onApproved }) {
   const [pin, setPin] = useState('')
@@ -77,14 +79,28 @@ export function ManagerPinModal({ open, onOpenChange, tenantId, token, onApprove
         </>
       }
     >
-      <Input
-        id="mgr-pin"
-        label="Manager PIN"
-        type="password"
-        autoComplete="one-time-code"
-        value={pin}
-        onChange={(e) => setPin(e.target.value)}
-      />
+      <div className="space-y-3">
+        <FingerprintPrompt
+          active={open}
+          roles={MANAGER_ROLE_LIST}
+          token={token}
+          tenantId={tenantId}
+          onMatch={(approver) => {
+            setPin('')
+            onOpenChange(false)
+            toast.success(`Approved by ${approver.name}`)
+            onApproved({ id: approver.id, name: approver.name })
+          }}
+        />
+        <Input
+          id="mgr-pin"
+          label="Manager PIN"
+          type="password"
+          autoComplete="one-time-code"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+        />
+      </div>
     </Modal>
   )
 }

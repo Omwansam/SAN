@@ -13,6 +13,11 @@ COPY . .
 ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
+# PWA (installable web app + service worker) is web-build only; the desktop
+# Electron bundle builds without this flag.
+ARG VITE_ENABLE_PWA=1
+ENV VITE_ENABLE_PWA=$VITE_ENABLE_PWA
+
 RUN npm run build
 
 FROM nginx:1.27-alpine

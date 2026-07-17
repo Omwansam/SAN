@@ -37,6 +37,7 @@ app.use(
   cors({
     origin: config.FRONTEND_URL || true,
     credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-workspace-slug'],
   }),
 );
 app.use(morgan(config.NODE_ENV === 'development' ? 'dev' : 'combined'));

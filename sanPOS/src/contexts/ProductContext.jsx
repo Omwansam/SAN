@@ -203,6 +203,14 @@ export function ProductProvider({ children }) {
     [tenantId],
   )
 
+  // Optimistic, local-only stock update for the sale path. The server now
+  // decrements stock inside the order transaction (accurate + offline-safe),
+  // so the client must NOT also PUT the product — this only refreshes the
+  // on-screen number until the next catalog sync reconciles it.
+  const patchProductLocal = useCallback((product) => {
+    dispatch({ type: 'UPDATE_PRODUCT', product })
+  }, [])
+
   const deleteProduct = useCallback(
     async (id) => {
       const token = getSessionToken(tenantId)
@@ -299,6 +307,7 @@ export function ProductProvider({ children }) {
       setCategories,
       addProduct,
       updateProduct,
+      patchProductLocal,
       deleteProduct,
       addCategory,
       updateCategory,
@@ -312,6 +321,7 @@ export function ProductProvider({ children }) {
       setCategories,
       addProduct,
       updateProduct,
+      patchProductLocal,
       deleteProduct,
       addCategory,
       updateCategory,

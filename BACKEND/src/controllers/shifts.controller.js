@@ -54,9 +54,23 @@ const getActiveShift = async (req, res, next) => {
 const createShift = async (req, res, next) => {
   try {
     const db = req.db || prisma;
-    const { branchId, userId, openingBalance = 0, notes } = req.body || {};
+    const { branchId, userId, openingBalance = 0, notes, clientRef = null } = req.body || {};
     if (!branchId) {
       return res.status(400).json({ success: false, error: 'branchId is required' });
+    }
+
+    // Idempotent replay for offline desktop clients re-sending a queued open.
+    if (clientRef) {
+      const existing = await db.shift.findFirst({
+        where: { tenantId: req.tenant.id, clientRef: String(clientRef) },
+        include: {
+          branch: { select: { id: true, name: true } },
+          user: { select: { id: true, name: true, email: true } },
+        },
+      });
+      if (existing) {
+        return res.status(200).json({ success: true, data: existing, replayed: true });
+      }
     }
     const resolvedUserId = userId || req.user.id;
     const safeOpening = normalizeMoney(openingBalance, 0);
@@ -105,6 +119,7 @@ const createShift = async (req, res, next) => {
         openingBalance: safeOpening,
         notes: notes ? String(notes).trim() : null,
         status: 'open',
+        clientRef: clientRef ? String(clientRef) : null,
       },
       include: {
         branch: { select: { id: true, name: true } },

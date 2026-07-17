@@ -1,4 +1,5 @@
 const { prisma } = require('../config/db');
+const { parseUpdatedSince, serverTime } = require('../utils/delta');
 
 const ALLOWED_DISCOUNT_TYPES = new Set(['none', 'percent', 'flat']);
 
@@ -86,6 +87,8 @@ const listDiscounts = async (req, res, next) => {
     } = req.query || {};
 
     const where = { tenantId: req.tenant.id };
+    const updatedSinceFilter = parseUpdatedSince(req.query);
+    if (updatedSinceFilter) where.updatedAt = { gt: updatedSinceFilter };
     const parsedActive = parseBoolean(active);
     if (active !== undefined && parsedActive === null) {
       return res.status(400).json({ success: false, error: 'active must be true or false' });
@@ -152,6 +155,7 @@ const listDiscounts = async (req, res, next) => {
       success: true,
       count: discounts.length,
       data: discounts,
+      serverTime: serverTime(),
     });
   } catch (error) {
     return next(error);

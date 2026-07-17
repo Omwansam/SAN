@@ -366,6 +366,128 @@ const setMyPin = async (req, res, next) => {
   }
 };
 
+// Offline credential mirror for the desktop app: bcrypt hashes of manager+
+// PINs so manager overrides keep working while the till is offline. PINs are
+// hashed here on the way out — plaintext never leaves the server.
+const MANAGER_ROLES = ['manager', 'admin', 'superadmin'];
+
+const getOfflineCredentials = async (req, res, next) => {
+  try {
+    const db = req.db || prisma;
+    const users = await db.user.findMany({
+      where: {
+        tenantId: req.tenant.id,
+        active: true,
+        role: { in: MANAGER_ROLES },
+        NOT: { pin: null },
+      },
+      select: { id: true, name: true, role: true, pin: true },
+    });
+    const data = await Promise.all(
+      users
+        .filter((u) => String(u.pin ?? '').trim())
+        .map(async (u) => ({
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          pinHash: await bcrypt.hash(String(u.pin), 8),
+        })),
+    );
+    return res.status(200).json({ success: true, count: data.length, data });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+// --- fingerprint templates (DigitalPersona; matched locally on the till) ---
+
+const listFingerprintTemplates = async (req, res, next) => {
+  try {
+    const db = req.db || prisma;
+    const templates = await db.fingerprintTemplate.findMany({
+      where: { tenantId: req.tenant.id, user: { active: true } },
+      select: {
+        userId: true,
+        finger: true,
+        template: true,
+        user: { select: { name: true, role: true } },
+      },
+    });
+    const data = templates.map((t) => ({
+      userId: t.userId,
+      name: t.user.name,
+      role: t.user.role,
+      finger: t.finger,
+      template: t.template,
+    }));
+    return res.status(200).json({ success: true, count: data.length, data });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const enrollFingerprint = async (req, res, next) => {
+  try {
+    const db = req.db || prisma;
+    const { userId, finger = 0, template } = req.body || {};
+    if (!template || typeof template !== 'string') {
+      return res.status(400).json({ success: false, error: 'template (base64) is required' });
+    }
+    const fingerIndex = Number(finger);
+    if (!Number.isInteger(fingerIndex) || fingerIndex < 0 || fingerIndex > 9) {
+      return res.status(400).json({ success: false, error: 'finger must be an integer 0-9' });
+    }
+    const targetUserId = userId ? String(userId) : req.user.id;
+    if (targetUserId !== req.user.id && !MANAGER_ROLES.includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only managers or admins can enroll fingerprints for other users',
+      });
+    }
+    const target = await db.user.findFirst({
+      where: { id: targetUserId, tenantId: req.tenant.id, active: true },
+      select: { id: true },
+    });
+    if (!target) {
+      return res.status(400).json({ success: false, error: 'User not found for this tenant' });
+    }
+    const saved = await db.fingerprintTemplate.upsert({
+      where: {
+        tenantId_userId_finger: {
+          tenantId: req.tenant.id,
+          userId: targetUserId,
+          finger: fingerIndex,
+        },
+      },
+      create: {
+        tenantId: req.tenant.id,
+        userId: targetUserId,
+        finger: fingerIndex,
+        template,
+      },
+      update: { template },
+    });
+    return res.status(201).json({
+      success: true,
+      data: { id: saved.id, userId: saved.userId, finger: saved.finger },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+const deleteFingerprintTemplates = async (req, res, next) => {
+  try {
+    const db = req.db || prisma;
+    const result = await db.fingerprintTemplate.deleteMany({
+      where: { tenantId: req.tenant.id, userId: String(req.params.userId) },
+    });
+    return res.status(200).json({ success: true, count: result.count });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -375,4 +497,8 @@ module.exports = {
   createUser,
   updateUserAdmin,
   setMyPin,
+  getOfflineCredentials,
+  listFingerprintTemplates,
+  enrollFingerprint,
+  deleteFingerprintTemplates,
 };

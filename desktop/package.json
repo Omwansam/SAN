@@ -1,0 +1,35 @@
+{
+  "name": "sanpos-desktop",
+  "version": "0.1.0",
+  "description": "SanPOS Windows desktop app — Electron shell with POS hardware and offline-first sync",
+  "author": "Omwansa Arnold",
+  "private": true,
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build:renderer": "npm --prefix ../sanPOS run build",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit",
+    "rebuild": "electron-rebuild -f",
+    "pack": "npm run build:renderer && electron-vite build && electron-builder --dir",
+    "dist": "npm run build:renderer && electron-vite build && electron-builder --win --x64"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "better-sqlite3": "^12.4.1",
+    "electron-updater": "^6.6.2",
+    "node-thermal-printer": "^4.5.0",
+    "serialport": "^13.0.0",
+    "usb": "^2.16.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.0",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^4.0.0",
+    "typescript": "^5.8.3"
+  }
+}
